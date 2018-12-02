@@ -1,0 +1,13 @@
+resolver: lts-12.17
+
+packages:
+- .
+
+extra-deps:
+- pwstore-fast-2.4.4
+
+nix:
+  enable: true
+  packages:
+  - zlib
+
