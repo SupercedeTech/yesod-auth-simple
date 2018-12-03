@@ -16,10 +16,11 @@ module Yesod.Auth.Simple (
   confirmR,
   userExistsR,
   registerSuccessR,
-  confirmationEmailSentR
+  confirmationEmailSentR,
+  EncryptedPass(..)
 ) where
 
-import           Crypto.Scrypt              (EncryptedPass, Pass (..),
+import           Crypto.Scrypt              (EncryptedPass(..), Pass(..),
                                              encryptPassIO', verifyPass')
 import           Data.Aeson
 import           Data.ByteString            (ByteString)
