@@ -28,15 +28,14 @@ Library
     , base64-bytestring
     , bytestring
     , clientsession
-    , cryptohash
     , email-validate
     , http-types
-    , pwstore-fast
+    , scrypt
     , text
     , time
-    , yesod-auth
-    , yesod-core
-    , yesod-form
+    , yesod-auth >= 1.6
+    , yesod-core >= 1.6
+    , yesod-form >= 1.6
 
 Test-Suite spec
   Type:                 exitcode-stdio-1.0

@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
@@ -20,21 +19,20 @@ module Yesod.Auth.Simple (
   confirmationEmailSentR
 ) where
 
-import           Crypto.Hash.MD5            (hash)
-import           Crypto.PasswordStore       (makePassword, verifyPassword)
+import           Crypto.Scrypt              (EncryptedPass, Pass (..),
+                                             encryptPassIO', verifyPass')
 import           Data.Aeson
 import           Data.ByteString            (ByteString)
-import           Data.ByteString.Base16     as B16
+import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Base64     as B64
 import qualified Data.ByteString.Base64.URL as B64Url
 import           Data.Maybe                 (fromJust)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
-import           Data.Text.Encoding         (decodeUtf8With, encodeUtf8, decodeUtf8)
+import           Data.Text.Encoding         (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error   (lenientDecode)
 import           Data.Time                  (UTCTime, addUTCTime, diffUTCTime,
                                              getCurrentTime)
-import           GHC.Generics
 import           Network.HTTP.Types         (status400)
 import           Text.Email.Validate        (canonicalizeEmail)
 import qualified Web.ClientSession          as CS
@@ -42,12 +40,12 @@ import           Yesod.Auth
 import           Yesod.Core
 import           Yesod.Form                 (ireq, runInputPost, textField)
 
-data Passwords = Passwords
-  { passwordsOriginal :: Text
-  , passwordsConfirm  :: Text
-  } deriving (Show, Generic)
+newtype PassReq = PassReq { reqPass :: Text }
 
-instance FromJSON Passwords
+instance FromJSON PassReq where
+  parseJSON = withObject "req" $ \o -> do
+    pass <- o .: "pass"
+    return $ PassReq pass
 
 loginR :: AuthRoute
 loginR = PluginR "simple" ["login"]
@@ -81,7 +79,6 @@ resetPasswordEmailSentR = PluginR "simple" ["reset-password-email-sent"]
 
 type Email = Text
 type VerUrl = Text
-type SaltedPass = Text
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
     type AuthSimpleId a
@@ -92,13 +89,13 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
     getUserId :: Email -> AuthHandler a (Maybe (AuthSimpleId a))
 
-    getUserPassword :: AuthSimpleId a -> AuthHandler a SaltedPass
+    getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
 
     getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
 
-    insertUser :: Email -> Text -> AuthHandler a (Maybe (AuthSimpleId a))
+    insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
 
-    updateUserPassword :: AuthSimpleId a -> Text -> AuthHandler a ()
+    updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
     afterPasswordRoute :: a -> Route a
 
@@ -199,7 +196,7 @@ postResetPasswordR :: YesodAuthSimple master => AuthHandler master Html
 postResetPasswordR = do
   clearError
   email <- runInputPost $ ireq textField "email"
-  mUid <- getUserId $ normalizeEmail email
+  mUid  <- getUserId $ normalizeEmail email
   case mUid of
     Just uid -> do
       modified <- getUserModified uid
@@ -241,22 +238,22 @@ confirmHandler registerUrl email = do
 postConfirmR :: YesodAuthSimple master => Text -> AuthHandler master Html
 postConfirmR token = do
   clearError
-  pass <- runInputPost $ ireq textField "password"
+  pass <- runInputPost $ ireq textField "pass"
   res  <- liftIO $ verifyRegisterToken token
   case res of
     Left msg ->
       invalidTokenHandler msg
     Right email ->
-      createUser token email pass
+      createUser token email (Pass . encodeUtf8 $ pass)
 
-createUser :: YesodAuthSimple m => Text -> Email -> Text -> AuthHandler m Html
+createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m Html
 createUser token email pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
     confirmHandlerHelper token email
   Right _ -> do
-    salted <- liftIO $ saltPass pass
-    mUid   <- insertUser email salted
+    encrypted <- liftIO $ encryptPassIO' pass
+    mUid      <- insertUser email encrypted
     case mUid of
       Just uid -> do
         let creds = Creds "simple" (toPathPiece uid) []
@@ -287,10 +284,10 @@ getUserExistsR = authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
-checkPasswordStrength :: Text -> Either Text ()
+checkPasswordStrength :: Pass -> Either Text ()
 checkPasswordStrength x
-  | T.length x >= 6 = Right ()
-  | otherwise = Left "Password must be at least six characters"
+  | BS.length (getPass x) >= 8 = Right ()
+  | otherwise = Left "Password must be at least eight characters"
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
@@ -316,14 +313,15 @@ clearError = deleteSession "error"
 postLoginR :: YesodAuthSimple master => AuthHandler master TypedContent
 postLoginR = do
   clearError
-  (email, pass) <- runInputPost $ (,)
+  (email, pass') <- runInputPost $ (,)
     <$> ireq textField "email"
     <*> ireq textField "password"
+  let pass = Pass . encodeUtf8 $ pass'
   mUid <- getUserId email
   case mUid of
     Just uid -> do
       realPass <- getUserPassword uid
-      if isValidPass pass realPass
+      if verifyPass' pass realPass
       then setCredsRedirect $ Creds "simple" (toPathPiece uid) []
       else wrongEmailOrPasswordRedirect
     _ -> wrongEmailOrPasswordRedirect
@@ -364,83 +362,45 @@ getSetPasswordTokenR token = do
 postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a Html
 postSetPasswordTokenR token = do
   clearError
-  (pass1, pass2) <- runInputPost $ (,)
-    <$> ireq textField "password1"
-    <*> ireq textField "password2"
-  res <- verifyPasswordResetToken token
+  pass <- runInputPost $ ireq textField "pass"
+  res  <- verifyPasswordResetToken token
   case res of
-    Left msg -> invalidTokenHandler msg
-    Right uid -> setPasswordToken token uid pass1 pass2
+    Left msg  -> invalidTokenHandler msg
+    Right uid -> setPassToken token uid (Pass . encodeUtf8 $ pass)
 
 putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
 putSetPasswordR = do
   clearError
-  uid <- requireAuthId
-  passwords <- requireJsonBody :: (AuthHandler master) Passwords
-  setPassword (toSimpleAuthId uid) passwords
+  uid <- toSimpleAuthId <$> requireAuthId
+  req <- requireJsonBody :: (AuthHandler m) PassReq
+  let pass = Pass . encodeUtf8 $ reqPass req
+  setPassword uid pass
 
-setPassword :: YesodAuthSimple a => AuthSimpleId a -> Passwords -> AuthHandler a Value
-setPassword uid passwords
-  | passwordsOriginal passwords /= passwordsConfirm passwords = do
-      let msg = "Passwords does not match" :: Text
-      sendResponseStatus status400 $ object ["message" .= msg]
-  | otherwise =
-      case checkPasswordStrength (passwordsOriginal passwords) of
-          Left msg ->
-              sendResponseStatus status400 $ object ["message" .= msg]
-          Right _ -> do
-              salted <- liftIO $ saltPass (passwordsOriginal passwords)
-              _ <- updateUserPassword uid salted
-              onPasswordUpdated
-              return $ object []
+setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
+setPassword uid pass = case checkPasswordStrength pass of
+  Left msg -> sendResponseStatus status400 $ object ["message" .= msg]
+  Right _  -> do
+    encrypted <- liftIO $ encryptPassIO' pass
+    _         <- updateUserPassword uid encrypted
+    onPasswordUpdated
+    return $ object []
 
-setPasswordToken :: YesodAuthSimple master => Text -> AuthSimpleId master -> Text -> Text -> AuthHandler master Html
-setPasswordToken token uid pass1 pass2
-  | pass1 /= pass2 = do
-      setError "Passwords does not match"
-      tp <- getRouteToParent
-      redirect $ tp $ setPasswordTokenR token
-  | otherwise =
-      case checkPasswordStrength pass1 of
-        Left msg -> do
-          setError msg
-          tp <- getRouteToParent
-          redirect $ tp $ setPasswordTokenR token
-        Right _ -> do
-          salted <- liftIO $ saltPass pass1
-          _ <- updateUserPassword uid salted
-          onPasswordUpdated
-          tp <- getRouteToParent
-          redirect $ tp loginR
-
-saltLength :: Int
-saltLength = 5
-
--- | Salt a password with a randomly generated salt.
-saltPass :: Text -> IO Text
-saltPass = fmap (decodeUtf8With lenientDecode)
-         . flip makePassword 17
-         . encodeUtf8
-
-saltPass' :: String -> String -> String
-saltPass' salt pass =
-  salt ++ T.unpack (decodeUtf8 $ B16.encode $ hash $ encodeUtf8 $ T.pack $ salt ++ pass)
-
-isValidPass :: Text -- ^ cleartext password
-            -> SaltedPass -- ^ salted password
-            -> Bool
-isValidPass ct salted =
-  verifyPassword (encodeUtf8 ct) (encodeUtf8 salted) || isValidPass' ct salted
-
-isValidPass' :: Text -- ^ cleartext password
-            -> SaltedPass -- ^ salted password
-            -> Bool
-isValidPass' clear' salted' =
-    let salt = take saltLength salted
-     in salted == saltPass' salt clear
-  where
-    clear = T.unpack clear'
-    salted = T.unpack salted'
+setPassToken :: YesodAuthSimple a
+             => Text
+             -> AuthSimpleId a
+             -> Pass
+             -> AuthHandler a Html
+setPassToken token uid pass = case checkPasswordStrength pass of
+  Left msg -> do
+    setError msg
+    tp <- getRouteToParent
+    redirect $ tp $ setPasswordTokenR token
+  Right _ -> do
+    encrypted <- liftIO $ encryptPassIO' pass
+    _         <- updateUserPassword uid encrypted
+    onPasswordUpdated
+    tp <- getRouteToParent
+    redirect $ tp loginR
 
 verifyRegisterToken :: Text -> IO (Either Text Email)
 verifyRegisterToken token = do
