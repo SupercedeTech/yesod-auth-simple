@@ -48,23 +48,27 @@ instance FromJSON PassReq where
     pass <- o .: "pass"
     return $ PassReq pass
 
+--------------------------------------------------------------------------------
+confirmR :: Text -> AuthRoute
+confirmR token = PluginR "simple" ["confirm", token]
+
+confirmationEmailSentR :: AuthRoute
+confirmationEmailSentR = PluginR "simple" ["confirmation-email-sent"]
+
 loginR :: AuthRoute
 loginR = PluginR "simple" ["login"]
 
 registerR :: AuthRoute
 registerR = PluginR "simple" ["register"]
 
-confirmationEmailSentR :: AuthRoute
-confirmationEmailSentR = PluginR "simple" ["confirmation-email-sent"]
-
 registerSuccessR :: AuthRoute
 registerSuccessR = PluginR "simple" ["register-success"]
 
-userExistsR :: AuthRoute
-userExistsR = PluginR "simple" ["user-exists"]
+resetPasswordEmailSentR :: AuthRoute
+resetPasswordEmailSentR = PluginR "simple" ["reset-password-email-sent"]
 
-confirmR :: Text -> AuthRoute
-confirmR token = PluginR "simple" ["confirm", token]
+resetPasswordR :: AuthRoute
+resetPasswordR = PluginR "simple" ["reset-password"]
 
 setPasswordR :: AuthRoute
 setPasswordR = PluginR "simple" ["set-password"]
@@ -72,61 +76,71 @@ setPasswordR = PluginR "simple" ["set-password"]
 setPasswordTokenR :: Text -> AuthRoute
 setPasswordTokenR token = PluginR "simple" ["set-password", token]
 
-resetPasswordR :: AuthRoute
-resetPasswordR = PluginR "simple" ["reset-password"]
+userExistsR :: AuthRoute
+userExistsR = PluginR "simple" ["user-exists"]
 
-resetPasswordEmailSentR :: AuthRoute
-resetPasswordEmailSentR = PluginR "simple" ["reset-password-email-sent"]
-
+--------------------------------------------------------------------------------
 type Email = Text
 type VerUrl = Text
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
-    type AuthSimpleId a
+  type AuthSimpleId a
 
-    sendVerifyEmail :: Email -> VerUrl -> AuthHandler a ()
+  afterPasswordRoute :: a -> Route a
 
-    sendResetPasswordEmail :: Email -> VerUrl -> AuthHandler a ()
+  getUserId :: Email -> AuthHandler a (Maybe (AuthSimpleId a))
 
-    getUserId :: Email -> AuthHandler a (Maybe (AuthSimpleId a))
+  getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
 
-    getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
+  getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
 
-    getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
+  insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
 
-    insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
+  updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
-    updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
+  sendVerifyEmail :: Email -> VerUrl -> AuthHandler a ()
+  sendVerifyEmail _ = liftIO . print
 
-    afterPasswordRoute :: a -> Route a
+  sendResetPasswordEmail :: Email -> VerUrl -> AuthHandler a ()
+  sendResetPasswordEmail _ = liftIO . print
 
-    loginTemplate :: Maybe Text -> WidgetFor a ()
+  loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  loginTemplate = loginTemplateDef
 
-    registerTemplate :: Maybe Text -> WidgetFor a ()
+  registerTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  registerTemplate = registerTemplateDef
 
-    resetPasswordTemplate :: Maybe Text -> WidgetFor a ()
+  resetPasswordTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  resetPasswordTemplate = resetPasswordTemplateDef
 
-    confirmTemplate :: Route a -> Email -> Maybe Text -> WidgetFor a ()
+  confirmTemplate :: Route a -> Email -> Maybe Text -> WidgetFor a ()
+  confirmTemplate = confirmTempateDef
 
-    confirmationEmailSentTemplate :: WidgetFor a ()
+  confirmationEmailSentTemplate :: WidgetFor a ()
+  confirmationEmailSentTemplate = confirmationEmailSentTemplateDef
 
-    resetPasswordEmailSentTemplate :: WidgetFor a ()
+  resetPasswordEmailSentTemplate :: WidgetFor a ()
+  resetPasswordEmailSentTemplate = resetPasswordEmailSentTemplateDef
 
-    registerSuccessTemplate :: WidgetFor a ()
+  registerSuccessTemplate :: WidgetFor a ()
+  registerSuccessTemplate = registerSuccessTemplateDef
 
-    userExistsTemplate :: WidgetFor a ()
+  userExistsTemplate :: WidgetFor a ()
+  userExistsTemplate = userExistsTemplateDef
 
-    invalidTokenTemplate :: Text -> WidgetFor a ()
+  invalidTokenTemplate :: Text -> WidgetFor a ()
+  invalidTokenTemplate = invalidTokenTemplateDef
 
-    setPasswordTemplate :: Route a -> Maybe Text -> WidgetFor a ()
+  setPasswordTemplate :: Route a -> Maybe Text -> WidgetFor a ()
+  setPasswordTemplate = setPasswordTemplateDef
 
-    onPasswordUpdated :: AuthHandler a ()
-    onPasswordUpdated = setMessage "Password has been updated"
+  onPasswordUpdated :: AuthHandler a ()
+  onPasswordUpdated = setMessage "Password has been updated"
 
 authSimple :: YesodAuthSimple m => AuthPlugin m
 authSimple = AuthPlugin "simple" dispatch loginHandlerRedirect
 
-loginHandlerRedirect :: (Route Auth -> Route master) -> WidgetFor master ()
+loginHandlerRedirect :: (Route Auth -> Route a) -> WidgetFor a ()
 loginHandlerRedirect tm = redirectTemplate $ tm loginR
 
 dispatch :: YesodAuthSimple a => Text -> [Text] -> AuthHandler a TypedContent
@@ -148,34 +162,37 @@ dispatch "POST" ["reset-password"] = postResetPasswordR >>= sendResponse
 dispatch "GET"  ["reset-password-email-sent"] = getResetPasswordEmailSentR >>= sendResponse
 dispatch _ _ = notFound
 
-getRegisterR :: YesodAuthSimple master => AuthHandler master Html
+getRegisterR :: YesodAuthSimple a => AuthHandler a Html
 getRegisterR = do
   mErr <- getError
   muid <- maybeAuthId
+  tp   <- getRouteToParent
   case muid of
     Nothing -> authLayout $ do
       setTitle "Register a new account"
-      registerTemplate mErr
+      registerTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
-getResetPasswordR :: YesodAuthSimple master => AuthHandler master Html
+getResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 getResetPasswordR = do
   mErr <- getError
+  tp   <- getRouteToParent
   authLayout $ do
     setTitle "Reset password"
-    resetPasswordTemplate mErr
+    resetPasswordTemplate tp mErr
 
-getLoginR :: YesodAuthSimple master => AuthHandler master Html
+getLoginR :: YesodAuthSimple a => AuthHandler a Html
 getLoginR = do
   mErr <- getError
   muid <- maybeAuthId
+  tp   <- getRouteToParent
   case muid of
     Nothing -> authLayout $ do
       setTitle "Login"
-      loginTemplate mErr
+      loginTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
-postRegisterR :: YesodAuthSimple master => AuthHandler master Html
+postRegisterR :: YesodAuthSimple a => AuthHandler a Html
 postRegisterR = do
   clearError
   email <- runInputPost $ ireq textField "email"
@@ -193,7 +210,7 @@ postRegisterR = do
       tp <- getRouteToParent
       redirect $ tp registerR
 
-postResetPasswordR :: YesodAuthSimple master => AuthHandler master Html
+postResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 postResetPasswordR = do
   clearError
   email <- runInputPost $ ireq textField "email"
@@ -212,31 +229,31 @@ postResetPasswordR = do
       tp <- getRouteToParent
       redirect $ tp resetPasswordR
 
-getConfirmR :: YesodAuthSimple master => Text -> AuthHandler master Html
+getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
 getConfirmR token = do
     res <- liftIO $ verifyRegisterToken token
     case res of
         Left msg    -> invalidTokenHandler msg
         Right email -> confirmHandlerHelper token email
 
-invalidTokenHandler :: YesodAuthSimple master => Text -> AuthHandler master Html
+invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a Html
 invalidTokenHandler msg = authLayout $ do
   setTitle "Invalid key"
   invalidTokenTemplate msg
 
-confirmHandlerHelper :: YesodAuthSimple master => Text -> Email -> AuthHandler master Html
+confirmHandlerHelper :: YesodAuthSimple a => Text -> Email -> AuthHandler a Html
 confirmHandlerHelper token email = do
     tp <- getRouteToParent
     confirmHandler (tp $ confirmR token) email
 
-confirmHandler :: YesodAuthSimple master => Route master -> Email -> AuthHandler master Html
+confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a Html
 confirmHandler registerUrl email = do
     mErr <- getError
     authLayout $ do
       setTitle "Confirm account"
       confirmTemplate registerUrl email mErr
 
-postConfirmR :: YesodAuthSimple master => Text -> AuthHandler master Html
+postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
 postConfirmR token = do
   clearError
   pass <- runInputPost $ ireq textField "pass"
@@ -265,22 +282,22 @@ createUser token email pass = case checkPasswordStrength pass of
         tp <- getRouteToParent
         redirect $ tp userExistsR
 
-getConfirmationEmailSentR :: YesodAuthSimple master => AuthHandler master Html
+getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a Html
 getConfirmationEmailSentR = authLayout $ do
   setTitle "Confirmation email sent"
   confirmationEmailSentTemplate
 
-getResetPasswordEmailSentR :: YesodAuthSimple master => AuthHandler master Html
+getResetPasswordEmailSentR :: YesodAuthSimple a => AuthHandler a Html
 getResetPasswordEmailSentR = authLayout $ do
   setTitle "Reset password email sent"
   resetPasswordEmailSentTemplate
 
-getRegisterSuccessR :: AuthHandler master Html
+getRegisterSuccessR :: AuthHandler a Html
 getRegisterSuccessR = do
   setMessage "Account created. Welcome!"
   redirect ("/" :: Text)
 
-getUserExistsR :: YesodAuthSimple master => AuthHandler master Html
+getUserExistsR :: YesodAuthSimple a => AuthHandler a Html
 getUserExistsR = authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
@@ -293,30 +310,30 @@ checkPasswordStrength x
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
 
-validateAndNormalizeEmail :: Text -> AuthHandler master (Maybe Text)
+validateAndNormalizeEmail :: Text -> AuthHandler a (Maybe Text)
 validateAndNormalizeEmail email = case canonicalizeEmail $ encodeUtf8 email of
   Just bytes ->
       return $ Just $ normalizeEmail $ decodeUtf8With lenientDecode bytes
   Nothing -> return Nothing
 
-getError :: AuthHandler master (Maybe Text)
+getError :: AuthHandler a (Maybe Text)
 getError = do
   mErr <- lookupSession "error"
   clearError
   return mErr
 
-setError :: Text -> AuthHandler master ()
+setError :: Text -> AuthHandler a ()
 setError = setSession "error"
 
-clearError :: AuthHandler master ()
+clearError :: AuthHandler a ()
 clearError = deleteSession "error"
 
-postLoginR :: YesodAuthSimple master => AuthHandler master TypedContent
+postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
   (email, pass') <- runInputPost $ (,)
     <$> ireq textField "email"
-    <*> ireq textField "password"
+    <*> ireq textField "pass"
   let pass = Pass . encodeUtf8 $ pass'
   mUid <- getUserId email
   case mUid of
@@ -327,7 +344,7 @@ postLoginR = do
       else wrongEmailOrPasswordRedirect
     _ -> wrongEmailOrPasswordRedirect
 
-wrongEmailOrPasswordRedirect :: AuthHandler master TypedContent
+wrongEmailOrPasswordRedirect :: AuthHandler a TypedContent
 wrongEmailOrPasswordRedirect = do
   setError "Wrong email or password"
   tp <- getRouteToParent
@@ -336,7 +353,7 @@ wrongEmailOrPasswordRedirect = do
 toSimpleAuthId :: forall c a. (PathPiece c, PathPiece a) => a -> c
 toSimpleAuthId = fromJust . fromPathPiece . toPathPiece
 
-getSetPasswordR :: YesodAuthSimple master => AuthHandler master Html
+getSetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 getSetPasswordR = do
   mUid <- maybeAuthId
   tp <- getRouteToParent
@@ -348,7 +365,7 @@ getSetPasswordR = do
         setPasswordTemplate (tp setPasswordR) mErr
     Nothing -> redirect $ tp loginR
 
-getSetPasswordTokenR :: YesodAuthSimple master => Text -> AuthHandler master Html
+getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a Html
 getSetPasswordTokenR token = do
   res <- verifyPasswordResetToken token
   case res of
@@ -414,7 +431,7 @@ verifyRegisterToken token = do
       then return $ Right email
       else return $ Left "Verification key has expired"
 
-verifyPasswordResetToken :: YesodAuthSimple master => Text -> AuthHandler master (Either Text (AuthSimpleId master))
+verifyPasswordResetToken :: YesodAuthSimple a => Text -> AuthHandler a (Either Text (AuthSimpleId a))
 verifyPasswordResetToken token = do
   res <- decryptPasswordResetToken token
   case res of
@@ -437,7 +454,7 @@ encryptPasswordResetToken uid modified = do
   ciphertext <- liftIO $ CS.encryptIO key $ encodeUtf8 cleartext
   return $ encodeToken ciphertext
 
-decryptPasswordResetToken :: YesodAuthSimple master => Text -> AuthHandler master (Either Text (UTCTime, UTCTime, AuthSimpleId master))
+decryptPasswordResetToken :: YesodAuthSimple a => Text -> AuthHandler a (Either Text (UTCTime, UTCTime, AuthSimpleId a))
 decryptPasswordResetToken ciphertext = do
   key <- liftIO getDefaultKey
   case CS.decrypt key (decodeToken ciphertext) of
@@ -480,11 +497,137 @@ encodeToken = decodeUtf8With lenientDecode . B64Url.encode . B64.decodeLenient
 decodeToken :: Text -> ByteString
 decodeToken = B64.encode . B64Url.decodeLenient . encodeUtf8
 
-redirectTemplate :: Route master -> WidgetFor master ()
+redirectTemplate :: Route a -> WidgetFor a ()
 redirectTemplate destUrl = [whamlet|
   $newline never
   <script>window.location = "@{destUrl}";
   <p>Content has moved, click
     <a href="@{destUrl}">here
+|]
+
+loginTemplateDef :: YesodAuthSimple a => (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+loginTemplateDef toParent mErr = [whamlet|
+  $newline never
+  $maybe err <- mErr
+    <div class="alert">#{err}
+
+  <h1>Sign in
+  <form method="post" action="@{toParent loginR}">
+    <fieldset>
+      <label for="email">Email
+      <input type="email" name="email" autofocus required>
+    <fieldset>
+      <label for="pass">Password
+      <input type="password" name="pass" required>
+    <button type="submit">Sign in
+    <p>
+      <a href="@{toParent resetPasswordR}">Forgot password?
+    <p class="need-to-register">
+      Need an account? <a href="@{toParent registerR}">Register</a>.
+  |]
+
+setPasswordTemplateDef :: YesodAuthSimple a => Route a -> Maybe Text -> WidgetFor a ()
+setPasswordTemplateDef url mErr = [whamlet|
+  $newline never
+  $maybe err <- mErr
+    <div class="alert">#{err}
+
+  <h1>Set new password
+  <form method="post" action="@{url}">
+    <fieldset>
+      <label for="pass">Password
+      <input type="password" name="pass" autofocus required>
+    <button type="submit">Save
+  |]
+
+invalidTokenTemplateDef :: YesodAuthSimple a => Text -> WidgetFor a ()
+invalidTokenTemplateDef msg = [whamlet|
+  $newline never
+  <.invalid-token>
+    <h1>Invalid key
+    <p>#{msg}
+|]
+
+userExistsTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+userExistsTemplateDef = [whamlet|
+  $newline never
+  <.user-exists>
+    <h1>Failed to create account
+    <p>User already exists
+|]
+
+registerSuccessTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+registerSuccessTemplateDef = [whamlet|
+  $newline never
+  <.register-success>
+    <h1>Account created!
+|]
+
+resetPasswordEmailSentTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+resetPasswordEmailSentTemplateDef = [whamlet|
+  $newline never
+  <.password-reset-email-sent>
+    <h1>Email Sent!
+    <p>An email has been sent to your address.
+    <p>Click on the link in the email to complete the password reset.
+|]
+
+confirmationEmailSentTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+confirmationEmailSentTemplateDef = [whamlet|
+  $newline never
+  <.confirmation-email-sent">
+    <h1>Email sent
+    <p>
+      A confirmation email has been sent to your address.
+      Click on the link in the email to complete the registration.
+|]
+
+confirmTempateDef :: Route a -> Email -> Maybe Text -> WidgetFor a ()
+confirmTempateDef confirmUrl email mErr = [whamlet|
+  $newline never
+  $maybe err <- mErr
+    <div class="alert">#{err}
+
+  <.confirm>
+    <h1>Set Your Password
+    <form method="post" action="@{confirmUrl}">
+      <p>#{email}
+      <fieldset>
+        <label for="pass">Password
+        <input type="password" name="pass" placeholder="Easy to remember, hard to guess" required autofocus>
+      <button type="submit">Set Password
+|]
+
+resetPasswordTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+resetPasswordTemplateDef toParent mErr = [whamlet|
+  $newline never
+  $maybe err <- mErr
+    <div class="alert">#{err}
+
+  <.reset-password>
+    <h1>Reset Password
+    <p>Did you forget your password? No problem.
+    <p>Give us your email address, and we'll send you reset instructions.
+    <form method="post" action="@{toParent resetPasswordR}">
+      <fieldset>
+        <label for="email">Email
+        <input type="email" name="email" autofocus required>
+      <button type="submit">Reset
+|]
+
+registerTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+registerTemplateDef toParent mErr = [whamlet|
+  $newline never
+  $maybe err <- mErr
+    <div class="alert">#{err}
+
+  <.register>
+    <h1>Register new account
+    <form method="post" action="@{toParent registerR}">
+      <fieldset>
+        <label for="email">Email
+        <input type="email" name="email" placeholder="Enter your email address" autofocus required>
+      <button type="submit">Register
+      <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
 |]
 
