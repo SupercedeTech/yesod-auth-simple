@@ -1,26 +1,28 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE Rank2Types        #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE TypeFamilies               #-}
 
-module Yesod.Auth.Simple (
-  YesodAuthSimple(..),
-  authSimple,
-  loginR,
-  registerR,
-  setPasswordR,
-  resetPasswordR,
-  resetPasswordEmailSentR,
-  setPasswordTokenR,
-  confirmR,
-  userExistsR,
-  registerSuccessR,
-  confirmationEmailSentR,
-  EncryptedPass(..)
-) where
+module Yesod.Auth.Simple
+  ( YesodAuthSimple(..)
+  , authSimple
+  , loginR
+  , registerR
+  , setPasswordR
+  , resetPasswordR
+  , resetPasswordEmailSentR
+  , setPasswordTokenR
+  , confirmR
+  , userExistsR
+  , registerSuccessR
+  , confirmationEmailSentR
+  , EncryptedPass(..)
+  , Email(..)
+  ) where
 
-import           Crypto.Scrypt              (EncryptedPass(..), Pass(..),
+import           Crypto.Scrypt              (EncryptedPass (..), Pass (..),
                                              encryptPassIO', verifyPass')
 import           Data.Aeson
 import           Data.ByteString            (ByteString)
@@ -80,7 +82,9 @@ userExistsR :: AuthRoute
 userExistsR = PluginR "simple" ["user-exists"]
 
 --------------------------------------------------------------------------------
-type Email = Text
+newtype Email = Email Text
+  deriving Show
+
 type VerUrl = Text
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
@@ -199,11 +203,11 @@ postRegisterR = do
   mEmail <- validateAndNormalizeEmail email
   case mEmail of
     Just email' -> do
-      token <- liftIO $ encryptRegisterToken email'
+      token <- liftIO $ encryptRegisterToken (Email email')
       tp <- getRouteToParent
       renderUrl <- getUrlRender
       let url = renderUrl $ tp $ confirmR token
-      sendVerifyEmail email' url
+      sendVerifyEmail (Email email') url
       redirect $ tp confirmationEmailSentR
     Nothing -> do
       setError "Invalid email address"
@@ -214,7 +218,7 @@ postResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 postResetPasswordR = do
   clearError
   email <- runInputPost $ ireq textField "email"
-  mUid  <- getUserId $ normalizeEmail email
+  mUid  <- getUserId $ Email $ normalizeEmail email
   case mUid of
     Just uid -> do
       modified <- getUserModified uid
@@ -222,7 +226,7 @@ postResetPasswordR = do
       tp <- getRouteToParent
       renderUrl <- getUrlRender
       let url = renderUrl $ tp $ setPasswordTokenR token
-      sendResetPasswordEmail email url
+      sendResetPasswordEmail (Email email) url
       redirect $ tp resetPasswordEmailSentR
     Nothing -> do
       setError "Email not found"
@@ -335,7 +339,7 @@ postLoginR = do
     <$> ireq textField "email"
     <*> ireq textField "pass"
   let pass = Pass . encodeUtf8 $ pass'
-  mUid <- getUserId email
+  mUid <- getUserId (Email email)
   case mUid of
     Just uid -> do
       realPass <- getUserPassword uid
@@ -470,7 +474,7 @@ decryptPasswordResetToken ciphertext = do
       return $ Left "Failed to decode key"
 
 encryptRegisterToken :: Email -> IO Text
-encryptRegisterToken email = do
+encryptRegisterToken (Email email) = do
   expires <- addUTCTime 86400 <$> getCurrentTime
   key <- getDefaultKey
   let cleartext = T.intercalate "|" [ T.pack $ show expires, email ]
@@ -485,7 +489,7 @@ decryptRegisterToken ciphertext = do
       let cleartext = decodeUtf8With lenientDecode bytes
       let [expires, email] = T.splitOn "|" cleartext
       return $
-        Right (read $ T.unpack expires :: UTCTime, email)
+        Right (read $ T.unpack expires :: UTCTime, (Email email))
     Nothing ->
       return $ Left "Failed to decode key"
 
@@ -583,7 +587,7 @@ confirmationEmailSentTemplateDef = [whamlet|
 |]
 
 confirmTempateDef :: Route a -> Email -> Maybe Text -> WidgetFor a ()
-confirmTempateDef confirmUrl email mErr = [whamlet|
+confirmTempateDef confirmUrl (Email email) mErr = [whamlet|
   $newline never
   $maybe err <- mErr
     <div class="alert">#{err}
