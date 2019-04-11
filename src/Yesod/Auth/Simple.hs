@@ -20,6 +20,7 @@ module Yesod.Auth.Simple
   , confirmationEmailSentR
   , EncryptedPass(..)
   , Email(..)
+  , Password(..)
   ) where
 
 import           Crypto.Scrypt              (EncryptedPass (..), Pass (..),
@@ -84,6 +85,11 @@ userExistsR = PluginR "simple" ["user-exists"]
 --------------------------------------------------------------------------------
 newtype Email = Email Text
   deriving Show
+
+newtype Password = Password Text
+
+instance Show Password where
+  show _ = "<redacted>"
 
 type VerUrl = Text
 
