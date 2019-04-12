@@ -21,6 +21,7 @@ module Yesod.Auth.Simple
   , EncryptedPass(..)
   , Email(..)
   , Password(..)
+  , encryptPassIO'
   ) where
 
 import           Crypto.Scrypt              (EncryptedPass (..), Pass (..),
