@@ -6,8 +6,10 @@
 {-# LANGUAGE TypeFamilies               #-}
 
 module Yesod.Auth.Simple
-  ( YesodAuthSimple(..)
+  ( -- * Plugin
+    YesodAuthSimple(..)
   , authSimple
+    -- * Routes
   , loginR
   , registerR
   , setPasswordR
@@ -18,9 +20,12 @@ module Yesod.Auth.Simple
   , userExistsR
   , registerSuccessR
   , confirmationEmailSentR
-  , EncryptedPass(..)
+    -- * Types
   , Email(..)
   , Password(..)
+    -- * Re-export from Scrypt
+  , EncryptedPass(..)
+  , Pass(..)
   , encryptPassIO'
   ) where
 
