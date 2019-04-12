@@ -56,7 +56,8 @@ import           Data.Text.Encoding         (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error   (lenientDecode)
 import           Data.Time                  (UTCTime, addUTCTime, diffUTCTime,
                                              getCurrentTime)
-import           Network.HTTP.Types         (status400)
+import           Network.HTTP.Types         (badRequest400,
+                                             unprocessableEntity422)
 import           Text.Email.Validate        (canonicalizeEmail)
 import qualified Web.ClientSession          as CS
 import           Yesod.Auth
@@ -240,7 +241,7 @@ postRegisterR = do
     Nothing -> do
       setError "Invalid email address"
       tp <- getRouteToParent
-      redirect $ tp registerR
+      redirectWith unprocessableEntity422 $ tp registerR
 
 postResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 postResetPasswordR = do
@@ -428,7 +429,7 @@ putSetPasswordR = do
 
 setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
 setPassword uid pass = case checkPasswordStrength pass of
-  Left msg -> sendResponseStatus status400 $ object ["message" .= msg]
+  Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
   Right _  -> do
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
