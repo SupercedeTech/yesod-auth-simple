@@ -20,6 +20,19 @@ module Yesod.Auth.Simple
   , userExistsR
   , registerSuccessR
   , confirmationEmailSentR
+    -- * Default widgets
+  , loginTemplateDef
+  , setPasswordTemplateDef
+  , invalidTokenTemplateDef
+  , userExistsTemplateDef
+  , registerSuccessTemplateDef
+  , resetPasswordEmailSentTemplateDef
+  , confirmationEmailSentTemplateDef
+  , confirmTempateDef
+  , resetPasswordTemplateDef
+  , registerTemplateDef
+    -- * Misc
+  , encryptRegisterToken
     -- * Types
   , Email(..)
   , Password(..)
@@ -56,6 +69,9 @@ instance FromJSON PassReq where
   parseJSON = withObject "req" $ \o -> do
     pass <- o .: "pass"
     return $ PassReq pass
+
+tshow :: Show a => a -> Text
+tshow = T.pack . show
 
 --------------------------------------------------------------------------------
 confirmR :: Text -> AuthRoute
@@ -466,7 +482,7 @@ encryptPasswordResetToken :: YesodAuthSimple a => AuthSimpleId a -> UTCTime -> A
 encryptPasswordResetToken uid modified = do
   expires <- liftIO $ addUTCTime 3600 <$> getCurrentTime
   key <- liftIO getDefaultKey
-  let cleartext = T.concat [T.pack $ show expires, "|", T.pack $ show modified, "|", toPathPiece uid]
+  let cleartext = T.intercalate "|" [tshow expires, tshow modified, toPathPiece uid]
   ciphertext <- liftIO $ CS.encryptIO key $ encodeUtf8 cleartext
   return $ encodeToken ciphertext
 
@@ -489,7 +505,7 @@ encryptRegisterToken :: Email -> IO Text
 encryptRegisterToken (Email email) = do
   expires <- addUTCTime 86400 <$> getCurrentTime
   key <- getDefaultKey
-  let cleartext = T.intercalate "|" [ T.pack $ show expires, email ]
+  let cleartext = T.intercalate "|" [ tshow expires, email ]
   ciphertext <- CS.encryptIO key $ encodeUtf8 cleartext
   return $ encodeToken ciphertext
 
