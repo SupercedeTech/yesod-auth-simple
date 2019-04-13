@@ -33,6 +33,8 @@ Library
     , scrypt
     , text
     , time
+    , wai
+    , blaze-html
     , yesod-auth >= 1.6
     , yesod-core >= 1.6
     , yesod-form >= 1.6

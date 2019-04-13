@@ -42,27 +42,30 @@ module Yesod.Auth.Simple
   , encryptPassIO'
   ) where
 
-import           Crypto.Scrypt              (EncryptedPass (..), Pass (..),
-                                             encryptPassIO', verifyPass')
+import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
+                                                encryptPassIO', verifyPass')
 import           Data.Aeson
-import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as BS
-import qualified Data.ByteString.Base64     as B64
-import qualified Data.ByteString.Base64.URL as B64Url
-import           Data.Maybe                 (fromJust)
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import           Data.Text.Encoding         (decodeUtf8With, encodeUtf8)
-import           Data.Text.Encoding.Error   (lenientDecode)
-import           Data.Time                  (UTCTime, addUTCTime, diffUTCTime,
-                                             getCurrentTime)
-import           Network.HTTP.Types         (badRequest400,
-                                             unprocessableEntity422)
-import           Text.Email.Validate        (canonicalizeEmail)
-import qualified Web.ClientSession          as CS
+import           Data.ByteString               (ByteString)
+import qualified Data.ByteString               as BS
+import qualified Data.ByteString.Base64        as B64
+import qualified Data.ByteString.Base64.URL    as B64Url
+import           Data.Function                 ((&))
+import           Data.Maybe                    (fromJust)
+import           Data.Text                     (Text)
+import qualified Data.Text                     as T
+import           Data.Text.Encoding            (decodeUtf8With, encodeUtf8)
+import           Data.Text.Encoding.Error      (lenientDecode)
+import           Data.Time                     (UTCTime, addUTCTime,
+                                                diffUTCTime, getCurrentTime)
+import           Network.HTTP.Types            (badRequest400,
+                                                unprocessableEntity422)
+import           Network.Wai                   (responseBuilder)
+import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
+import           Text.Email.Validate           (canonicalizeEmail)
+import qualified Web.ClientSession             as CS
 import           Yesod.Auth
 import           Yesod.Core
-import           Yesod.Form                 (ireq, runInputPost, textField)
+import           Yesod.Form                    (ireq, runInputPost, textField)
 
 newtype PassReq = PassReq { reqPass :: Text }
 
@@ -264,32 +267,37 @@ postResetPasswordR = do
 
 getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
 getConfirmR token = do
-    res <- liftIO $ verifyRegisterToken token
-    case res of
-        Left msg    -> invalidTokenHandler msg
-        Right email -> confirmHandlerHelper token email
+  res <- liftIO $ verifyRegisterToken token
+  case res of
+    Left msg    -> invalidTokenHandler msg
+    Right email -> confirmHandlerHelper token email
 
 invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a Html
-invalidTokenHandler msg = authLayout $ do
-  setTitle "Invalid key"
-  invalidTokenTemplate msg
+invalidTokenHandler msg = do
+  html <- authLayout $ do
+    setTitle "Invalid key"
+    invalidTokenTemplate msg
+  let contentType = [("Content-Type", "text/html")]
+  renderHtmlBuilder html
+    & responseBuilder badRequest400 contentType
+    & sendWaiResponse
 
 confirmHandlerHelper :: YesodAuthSimple a => Text -> Email -> AuthHandler a Html
 confirmHandlerHelper token email = do
-    tp <- getRouteToParent
-    confirmHandler (tp $ confirmR token) email
+  tp <- getRouteToParent
+  confirmHandler (tp $ confirmR token) email
 
 confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a Html
 confirmHandler registerUrl email = do
-    mErr <- getError
-    authLayout $ do
-      setTitle "Confirm account"
-      confirmTemplate registerUrl email mErr
+  mErr <- getError
+  authLayout $ do
+    setTitle "Confirm account"
+    confirmTemplate registerUrl email mErr
 
 postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
 postConfirmR token = do
   clearError
-  pass <- runInputPost $ ireq textField "pass"
+  pass <- runInputPost $ ireq textField "password"
   res  <- liftIO $ verifyRegisterToken token
   case res of
     Left msg ->
@@ -301,7 +309,8 @@ createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m Html
 createUser token email pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
-    confirmHandlerHelper token email
+    tp <- getRouteToParent
+    redirectWith unprocessableEntity422 $ tp $ confirmR token
   Right _ -> do
     encrypted <- liftIO $ encryptPassIO' pass
     mUid      <- insertUser email encrypted
@@ -366,7 +375,7 @@ postLoginR = do
   clearError
   (email, pass') <- runInputPost $ (,)
     <$> ireq textField "email"
-    <*> ireq textField "pass"
+    <*> ireq textField "password"
   let pass = Pass . encodeUtf8 $ pass'
   mUid <- getUserId (Email email)
   case mUid of
@@ -413,7 +422,7 @@ getSetPasswordTokenR token = do
 postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a Html
 postSetPasswordTokenR token = do
   clearError
-  pass <- runInputPost $ ireq textField "pass"
+  pass <- runInputPost $ ireq textField "password"
   res  <- verifyPasswordResetToken token
   case res of
     Left msg  -> invalidTokenHandler msg
@@ -429,7 +438,7 @@ putSetPasswordR = do
 
 setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
 setPassword uid pass = case checkPasswordStrength pass of
-  Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
+  Left msg -> sendResponseStatus unprocessableEntity422 $ object [ "message" .= msg ]
   Right _  -> do
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
@@ -445,7 +454,7 @@ setPassToken token uid pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
     tp <- getRouteToParent
-    redirect $ tp $ setPasswordTokenR token
+    redirectWith unprocessableEntity422 $ tp $ setPasswordTokenR token
   Right _ -> do
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
