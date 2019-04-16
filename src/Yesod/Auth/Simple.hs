@@ -130,6 +130,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
 
+  onRegisterSuccess :: AuthHandler a Html
+
   insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
 
   updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
@@ -318,8 +320,7 @@ createUser token email pass = case checkPasswordStrength pass of
       Just uid -> do
         let creds = Creds "simple" (toPathPiece uid) []
         setCreds False creds
-        tp <- getRouteToParent
-        redirect $ tp registerSuccessR
+        onRegisterSuccess
       Nothing -> do
         tp <- getRouteToParent
         redirect $ tp userExistsR
