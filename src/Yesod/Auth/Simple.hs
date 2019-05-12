@@ -127,6 +127,7 @@ instance PersistField Email where
 
 --------------------------------------------------------------------------------
 newtype Password = Password Text
+  deriving Eq
 
 instance Show Password where
   show _ = "<redacted>"
