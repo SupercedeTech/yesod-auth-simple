@@ -115,7 +115,7 @@ userExistsR = PluginR "simple" ["user-exists"]
 
 --------------------------------------------------------------------------------
 newtype Email = Email Text
-  deriving Show
+  deriving (Eq, Show)
 
 instance PersistFieldSql Email where
   sqlType = const SqlString
