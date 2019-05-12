@@ -1,7 +1,7 @@
 { mkDerivation, aeson, base, base16-bytestring, base64-bytestring
 , blaze-html, bytestring, clientsession, email-validate, hspec
-, http-types, scrypt, stdenv, text, time, wai, yesod-auth
-, yesod-core, yesod-form
+, http-types, persistent, scrypt, stdenv, text, time, wai
+, yesod-auth, yesod-core, yesod-form
 }:
 mkDerivation {
   pname = "yesod-auth-simple";
@@ -9,8 +9,8 @@ mkDerivation {
   src = ./.;
   libraryHaskellDepends = [
     aeson base base16-bytestring base64-bytestring blaze-html
-    bytestring clientsession email-validate http-types scrypt text time
-    wai yesod-auth yesod-core yesod-form
+    bytestring clientsession email-validate http-types persistent
+    scrypt text time wai yesod-auth yesod-core yesod-form
   ];
   testHaskellDepends = [ base hspec ];
   description = "Traditional email/pass auth for Yesod";

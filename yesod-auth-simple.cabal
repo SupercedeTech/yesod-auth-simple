@@ -38,6 +38,7 @@ Library
     , yesod-auth >= 1.6
     , yesod-core >= 1.6
     , yesod-form >= 1.6
+    , persistent >= 2.8.2
 
 Test-Suite spec
   Type:                 exitcode-stdio-1.0

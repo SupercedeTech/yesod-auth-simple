@@ -57,6 +57,11 @@ import           Data.Text.Encoding            (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error      (lenientDecode)
 import           Data.Time                     (UTCTime, addUTCTime,
                                                 diffUTCTime, getCurrentTime)
+import           Database.Persist.Sql          (PersistField, PersistFieldSql,
+                                                PersistValue (PersistText),
+                                                SqlType (SqlString),
+                                                fromPersistValue, sqlType,
+                                                toPersistValue)
 import           Network.HTTP.Types            (badRequest400,
                                                 unprocessableEntity422)
 import           Network.Wai                   (responseBuilder)
@@ -112,11 +117,29 @@ userExistsR = PluginR "simple" ["user-exists"]
 newtype Email = Email Text
   deriving Show
 
+instance PersistFieldSql Email where
+  sqlType = const SqlString
+
+instance PersistField Email where
+  toPersistValue (Email e) = toPersistValue e
+  fromPersistValue (PersistText e) = Right $ Email e
+  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
+
+--------------------------------------------------------------------------------
 newtype Password = Password Text
 
 instance Show Password where
   show _ = "<redacted>"
 
+instance PersistFieldSql Password where
+  sqlType = const SqlString
+
+instance PersistField Password where
+  toPersistValue (Password e) = toPersistValue e
+  fromPersistValue (PersistText e) = Right $ Password e
+  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
+
+--------------------------------------------------------------------------------
 type VerUrl = Text
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
