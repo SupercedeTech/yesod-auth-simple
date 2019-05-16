@@ -62,8 +62,7 @@ import           Database.Persist.Sql          (PersistField, PersistFieldSql,
                                                 SqlType (SqlString),
                                                 fromPersistValue, sqlType,
                                                 toPersistValue)
-import           Network.HTTP.Types            (badRequest400,
-                                                unprocessableEntity422)
+import           Network.HTTP.Types            (badRequest400)
 import           Network.Wai                   (responseBuilder)
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 import           Text.Email.Validate           (canonicalizeEmail)
@@ -270,7 +269,7 @@ postRegisterR = do
     Nothing -> do
       setError "Invalid email address"
       tp <- getRouteToParent
-      redirectWith unprocessableEntity422 $ tp registerR
+      redirect $ tp registerR
 
 postResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
 postResetPasswordR = do
@@ -336,7 +335,7 @@ createUser token email pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
     tp <- getRouteToParent
-    redirectWith unprocessableEntity422 $ tp $ confirmR token
+    redirect $ tp $ confirmR token
   Right _ -> do
     encrypted <- liftIO $ encryptPassIO' pass
     mUid      <- insertUser email encrypted
@@ -463,7 +462,7 @@ putSetPasswordR = do
 
 setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
 setPassword uid pass = case checkPasswordStrength pass of
-  Left msg -> sendResponseStatus unprocessableEntity422 $ object [ "message" .= msg ]
+  Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
   Right _  -> do
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
@@ -479,7 +478,7 @@ setPassToken token uid pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
     tp <- getRouteToParent
-    redirectWith unprocessableEntity422 $ tp $ setPasswordTokenR token
+    redirect $ tp $ setPasswordTokenR token
   Right _ -> do
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
