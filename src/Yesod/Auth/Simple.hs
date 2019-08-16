@@ -564,12 +564,15 @@ decodeToken :: Text -> ByteString
 decodeToken = B64.encode . B64Url.decodeLenient . encodeUtf8
 
 redirectTemplate :: Route a -> WidgetFor a ()
-redirectTemplate destUrl = [whamlet|
-  $newline never
-  <script>window.location = "@{destUrl}";
-  <p>Content has moved, click
-    <a href="@{destUrl}">here
-|]
+redirectTemplate destUrl = do
+  toWidget
+    [whamlet|
+      $newline never
+      <p>Content has moved, click
+        <a href="@{destUrl}">here
+    |]
+  toWidget
+    [julius|window.location = "@{destUrl}";|]
 
 loginTemplateDef :: YesodAuthSimple a => (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
 loginTemplateDef toParent mErr = [whamlet|
