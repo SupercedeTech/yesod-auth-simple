@@ -468,7 +468,7 @@ putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
 putSetPasswordR = do
   clearError
   uid <- toSimpleAuthId <$> requireAuthId
-  req <- requireJsonBody :: (AuthHandler m) PassReq
+  req <- requireCheckJsonBody :: (AuthHandler m) PassReq
   let pass = Pass . encodeUtf8 $ reqPass req
   setPassword uid pass
 
