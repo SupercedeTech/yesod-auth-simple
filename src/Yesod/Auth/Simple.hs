@@ -114,7 +114,7 @@ userExistsR = PluginR "simple" ["user-exists"]
 
 --------------------------------------------------------------------------------
 newtype Email = Email Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, ToJSON, FromJSON)
 
 instance PersistFieldSql Email where
   sqlType = const SqlString
@@ -126,7 +126,7 @@ instance PersistField Email where
 
 --------------------------------------------------------------------------------
 newtype Password = Password Text
-  deriving Eq
+  deriving(Eq, ToJSON, FromJSON)
 
 instance Show Password where
   show _ = "<redacted>"
@@ -290,12 +290,15 @@ postResetPasswordR = do
       tp <- getRouteToParent
       redirect $ tp resetPasswordR
 
-getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
-getConfirmR token = do
-  res <- liftIO $ verifyRegisterToken token
-  case res of
-    Left msg    -> invalidTokenHandler msg
-    Right email -> confirmHandlerHelper token email
+getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
+getConfirmR token =
+  liftIO (verifyRegisterToken token) >>= either verifyFail verifySucc
+  where
+    verifyFail = selectRep . provideRep . invalidTokenHandler
+    verifySucc email = getUserId email >>=
+                         maybe (doConfirm email) redirectToHome
+    redirectToHome uid = setCredsRedirect $ Creds "simple" (toPathPiece uid) []
+    doConfirm = selectRep . provideRep . confirmHandlerHelper token
 
 invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a Html
 invalidTokenHandler msg = do
@@ -456,7 +459,7 @@ putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
 putSetPasswordR = do
   clearError
   uid <- toSimpleAuthId <$> requireAuthId
-  req <- requireJsonBody :: (AuthHandler m) PassReq
+  req <- requireCheckJsonBody :: (AuthHandler m) PassReq
   let pass = Pass . encodeUtf8 $ reqPass req
   setPassword uid pass
 
