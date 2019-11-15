@@ -5,6 +5,11 @@
 {-# LANGUAGE Rank2Types                 #-}
 {-# LANGUAGE TypeFamilies               #-}
 
+-- | A Yesod plugin for traditional email/password authentication
+--
+-- This plugin uses an alternative flow to Yesod.Auth.Email fom the yesod-auth
+-- package.
+
 module Yesod.Auth.Simple
   ( -- * Plugin
     YesodAuthSimple(..)
@@ -153,7 +158,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
 
-  onRegisterSuccess :: AuthHandler a Html
+  onRegisterSuccess :: AuthHandler a TypedContent
 
   insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
 
@@ -223,37 +228,37 @@ dispatch "POST" ["reset-password"] = postResetPasswordR >>= sendResponse
 dispatch "GET"  ["reset-password-email-sent"] = getResetPasswordEmailSentR >>= sendResponse
 dispatch _ _ = notFound
 
-getRegisterR :: YesodAuthSimple a => AuthHandler a Html
+getRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 getRegisterR = do
   mErr <- getError
   muid <- maybeAuthId
   tp   <- getRouteToParent
   case muid of
-    Nothing -> authLayout $ do
+    Nothing -> selectRep . provideRep . authLayout $ do
       setTitle "Register a new account"
       registerTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
-getResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
+getResetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getResetPasswordR = do
   mErr <- getError
   tp   <- getRouteToParent
-  authLayout $ do
+  selectRep . provideRep . authLayout $ do
     setTitle "Reset password"
     resetPasswordTemplate tp mErr
 
-getLoginR :: YesodAuthSimple a => AuthHandler a Html
+getLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 getLoginR = do
   mErr <- getError
   muid <- maybeAuthId
   tp   <- getRouteToParent
   case muid of
-    Nothing -> authLayout $ do
+    Nothing -> selectRep . provideRep . authLayout $ do
       setTitle "Login"
       loginTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
-postRegisterR :: YesodAuthSimple a => AuthHandler a Html
+postRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 postRegisterR = do
   clearError
   email <- runInputPost $ ireq textField "email"
@@ -271,7 +276,7 @@ postRegisterR = do
       tp <- getRouteToParent
       redirect $ tp registerR
 
-postResetPasswordR :: YesodAuthSimple a => AuthHandler a Html
+postResetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 postResetPasswordR = do
   clearError
   email <- runInputPost $ ireq textField "email"
@@ -294,13 +299,13 @@ getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 getConfirmR token =
   liftIO (verifyRegisterToken token) >>= either verifyFail verifySucc
   where
-    verifyFail = selectRep . provideRep . invalidTokenHandler
+    verifyFail = invalidTokenHandler
     verifySucc email = getUserId email >>=
                          maybe (doConfirm email) redirectToHome
     redirectToHome uid = setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-    doConfirm = selectRep . provideRep . confirmHandlerHelper token
+    doConfirm = confirmHandlerHelper token
 
-invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a Html
+invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 invalidTokenHandler msg = do
   html <- authLayout $ do
     setTitle "Invalid key"
@@ -310,19 +315,19 @@ invalidTokenHandler msg = do
     & responseBuilder badRequest400 contentType
     & sendWaiResponse
 
-confirmHandlerHelper :: YesodAuthSimple a => Text -> Email -> AuthHandler a Html
+confirmHandlerHelper :: YesodAuthSimple a => Text -> Email -> AuthHandler a TypedContent
 confirmHandlerHelper token email = do
   tp <- getRouteToParent
   confirmHandler (tp $ confirmR token) email
 
-confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a Html
+confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a TypedContent
 confirmHandler registerUrl email = do
   mErr <- getError
-  authLayout $ do
+  selectRep . provideRep . authLayout $ do
     setTitle "Confirm account"
     confirmTemplate registerUrl email mErr
 
-postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a Html
+postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postConfirmR token = do
   clearError
   pass <- runInputPost $ ireq textField "password"
@@ -333,7 +338,7 @@ postConfirmR token = do
     Right email ->
       createUser token email (Pass . encodeUtf8 $ pass)
 
-createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m Html
+createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
 createUser token email pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
@@ -351,23 +356,23 @@ createUser token email pass = case checkPasswordStrength pass of
         tp <- getRouteToParent
         redirect $ tp userExistsR
 
-getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a Html
-getConfirmationEmailSentR = authLayout $ do
+getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
+getConfirmationEmailSentR = selectRep . provideRep . authLayout $ do
   setTitle "Confirmation email sent"
   confirmationEmailSentTemplate
 
-getResetPasswordEmailSentR :: YesodAuthSimple a => AuthHandler a Html
-getResetPasswordEmailSentR = authLayout $ do
+getResetPasswordEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
+getResetPasswordEmailSentR = selectRep . provideRep . authLayout $ do
   setTitle "Reset password email sent"
   resetPasswordEmailSentTemplate
 
-getRegisterSuccessR :: AuthHandler a Html
+getRegisterSuccessR :: AuthHandler a TypedContent
 getRegisterSuccessR = do
   setMessage "Account created. Welcome!"
   redirect ("/" :: Text)
 
-getUserExistsR :: YesodAuthSimple a => AuthHandler a Html
-getUserExistsR = authLayout $ do
+getUserExistsR :: YesodAuthSimple a => AuthHandler a TypedContent
+getUserExistsR = selectRep . provideRep . authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
@@ -422,19 +427,19 @@ wrongEmailOrPasswordRedirect = do
 toSimpleAuthId :: forall c a. (PathPiece c, PathPiece a) => a -> c
 toSimpleAuthId = fromJust . fromPathPiece . toPathPiece
 
-getSetPasswordR :: YesodAuthSimple a => AuthHandler a Html
+getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getSetPasswordR = do
   mUid <- maybeAuthId
   tp <- getRouteToParent
   case mUid of
     Just _ -> do
       mErr <- getError
-      authLayout $ do
+      selectRep . provideRep . authLayout $ do
         setTitle "Set password"
         setPasswordTemplate (tp setPasswordR) mErr
     Nothing -> redirect $ tp loginR
 
-getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a Html
+getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 getSetPasswordTokenR token = do
   res <- verifyPasswordResetToken token
   case res of
@@ -442,11 +447,12 @@ getSetPasswordTokenR token = do
     Right _ -> do
       tp <- getRouteToParent
       mErr <- getError
-      authLayout $ do
+      selectRep . provideRep . authLayout $ do
         setTitle "Set password"
         setPasswordTemplate (tp $ setPasswordTokenR token) mErr
 
-postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a Html
+-- | Set a new password for the user
+postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postSetPasswordTokenR token = do
   clearError
   pass <- runInputPost $ ireq textField "password"
@@ -472,11 +478,12 @@ setPassword uid pass = case checkPasswordStrength pass of
     onPasswordUpdated
     return $ object []
 
-setPassToken :: YesodAuthSimple a
-             => Text
-             -> AuthSimpleId a
-             -> Pass
-             -> AuthHandler a Html
+setPassToken
+  :: YesodAuthSimple a
+  => Text
+  -> AuthSimpleId a
+  -> Pass
+  -> AuthHandler a TypedContent
 setPassToken token uid pass = case checkPasswordStrength pass of
   Left msg -> do
     setError msg
@@ -486,8 +493,7 @@ setPassToken token uid pass = case checkPasswordStrength pass of
     encrypted <- liftIO $ encryptPassIO' pass
     _         <- updateUserPassword uid encrypted
     onPasswordUpdated
-    tp <- getRouteToParent
-    redirect $ tp loginR
+    setCredsRedirect $ Creds "simple" (toPathPiece uid) []
 
 verifyRegisterToken :: Text -> IO (Either Text Email)
 verifyRegisterToken token = do
