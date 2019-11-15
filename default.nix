@@ -1,11 +1,11 @@
 let
   pinned = import ./nixpkgs.nix;
-  compiler = "ghc843";
+  compiler = "ghc865";
 
 in
 
   { pkgs ? import pinned {}
-  , compiler ? "ghc843"
+  , compiler ? "ghc865"
   }:
 
   pkgs.haskell.packages.${compiler}.callPackage ./yesod-auth-simple.nix { }
