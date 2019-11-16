@@ -129,12 +129,6 @@ instance PersistField Email where
   fromPersistValue (PersistText e) = Right $ Email e
   fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
 
-instance ToJSON Email where
-  toJSON (Email t) = toJSON t
-
-instance FromJSON Email where
-  parseJSON = fmap Email . parseJSON
-
 --------------------------------------------------------------------------------
 newtype Password = Password Text
   deriving(Eq, ToJSON, FromJSON)
@@ -149,12 +143,6 @@ instance PersistField Password where
   toPersistValue (Password e) = toPersistValue e
   fromPersistValue (PersistText e) = Right $ Password e
   fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
-
-instance ToJSON Password where
-  toJSON (Password t) = toJSON t
-
-instance FromJSON Password where
-  parseJSON = fmap Password . parseJSON
 
 --------------------------------------------------------------------------------
 type VerUrl = Text
