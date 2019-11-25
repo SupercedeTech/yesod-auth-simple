@@ -76,12 +76,12 @@ import           Yesod.Auth
 import           Yesod.Core
 import           Yesod.Form                    (ireq, runInputPost, textField)
 
-newtype PassReq = PassReq { reqPass :: Text }
+newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
 
-instance FromJSON PassReq where
+instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
-    pass <- o .: "pass"
-    return $ PassReq pass
+    password <- o .: "password"
+    return $ PasswordReq password
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -330,22 +330,22 @@ confirmHandler registerUrl email = do
 postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postConfirmR token = do
   clearError
-  pass <- runInputPost $ ireq textField "password"
+  password <- runInputPost $ ireq textField "password"
   res  <- liftIO $ verifyRegisterToken token
   case res of
     Left msg ->
       invalidTokenHandler msg
     Right email ->
-      createUser token email (Pass . encodeUtf8 $ pass)
+      createUser token email (Pass . encodeUtf8 $ password)
 
 createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
-createUser token email pass = case checkPasswordStrength pass of
+createUser token email password = case checkPasswordStrength password of
   Left msg -> do
     setError msg
     tp <- getRouteToParent
     redirect $ tp $ confirmR token
   Right _ -> do
-    encrypted <- liftIO $ encryptPassIO' pass
+    encrypted <- liftIO $ encryptPassIO' password
     mUid      <- insertUser email encrypted
     case mUid of
       Just uid -> do
@@ -405,15 +405,15 @@ clearError = deleteSession "error"
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
-  (email, pass') <- runInputPost $ (,)
+  (email, password') <- runInputPost $ (,)
     <$> ireq textField "email"
     <*> ireq textField "password"
-  let pass = Pass . encodeUtf8 $ pass'
+  let password = Pass . encodeUtf8 $ password'
   mUid <- getUserId (Email email)
   case mUid of
     Just uid -> do
-      realPass <- getUserPassword uid
-      if verifyPass' pass realPass
+      storedPassword <- getUserPassword uid
+      if verifyPass' password storedPassword
       then setCredsRedirect $ Creds "simple" (toPathPiece uid) []
       else wrongEmailOrPasswordRedirect
     _ -> wrongEmailOrPasswordRedirect
@@ -455,25 +455,25 @@ getSetPasswordTokenR token = do
 postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postSetPasswordTokenR token = do
   clearError
-  pass <- runInputPost $ ireq textField "password"
+  password <- runInputPost $ ireq textField "password"
   res  <- verifyPasswordResetToken token
   case res of
     Left msg  -> invalidTokenHandler msg
-    Right uid -> setPassToken token uid (Pass . encodeUtf8 $ pass)
+    Right uid -> setPassToken token uid (Pass . encodeUtf8 $ password)
 
 putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
 putSetPasswordR = do
   clearError
   uid <- toSimpleAuthId <$> requireAuthId
-  req <- requireCheckJsonBody :: (AuthHandler m) PassReq
-  let pass = Pass . encodeUtf8 $ reqPass req
-  setPassword uid pass
+  req <- requireCheckJsonBody :: (AuthHandler m) PasswordReq
+  let password = Pass . encodeUtf8 $ unPasswordReq req
+  setPassword uid password
 
 setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
-setPassword uid pass = case checkPasswordStrength pass of
+setPassword uid password = case checkPasswordStrength password of
   Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
   Right _  -> do
-    encrypted <- liftIO $ encryptPassIO' pass
+    encrypted <- liftIO $ encryptPassIO' password
     _         <- updateUserPassword uid encrypted
     onPasswordUpdated
     return $ object []
@@ -484,13 +484,13 @@ setPassToken
   -> AuthSimpleId a
   -> Pass
   -> AuthHandler a TypedContent
-setPassToken token uid pass = case checkPasswordStrength pass of
+setPassToken token uid password = case checkPasswordStrength password of
   Left msg -> do
     setError msg
     tp <- getRouteToParent
     redirect $ tp $ setPasswordTokenR token
   Right _ -> do
-    encrypted <- liftIO $ encryptPassIO' pass
+    encrypted <- liftIO $ encryptPassIO' password
     _         <- updateUserPassword uid encrypted
     onPasswordUpdated
     setCredsRedirect $ Creds "simple" (toPathPiece uid) []
@@ -595,8 +595,8 @@ loginTemplateDef toParent mErr = [whamlet|
       <label for="email">Email
       <input type="email" name="email" autofocus required>
     <fieldset>
-      <label for="pass">Password
-      <input type="password" name="pass" required>
+      <label for="password">Password
+      <input type="password" name="password" required>
     <button type="submit">Sign in
     <p>
       <a href="@{toParent resetPasswordR}">Forgot password?
@@ -613,8 +613,8 @@ setPasswordTemplateDef url mErr = [whamlet|
   <h1>Set new password
   <form method="post" action="@{url}">
     <fieldset>
-      <label for="pass">Password
-      <input type="password" name="pass" autofocus required>
+      <label for="password">Password
+      <input type="password" name="password" autofocus required>
     <button type="submit">Save
   |]
 
@@ -671,8 +671,8 @@ confirmTempateDef confirmUrl (Email email) mErr = [whamlet|
     <form method="post" action="@{confirmUrl}">
       <p>#{email}
       <fieldset>
-        <label for="pass">Password
-        <input type="password" name="pass" placeholder="Easy to remember, hard to guess" required autofocus>
+        <label for="password">Password
+        <input#password type="password" name="password" required autofocus>
       <button type="submit">Set Password
 |]
 
@@ -704,7 +704,12 @@ registerTemplateDef toParent mErr = [whamlet|
     <form method="post" action="@{toParent registerR}">
       <fieldset>
         <label for="email">Email
-        <input type="email" name="email" placeholder="Enter your email address" autofocus required>
+        <input#email
+          type="email"
+          name="email"
+          placeholder="Enter your email address"
+          autofocus
+          required>
       <button type="submit">Register
       <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
 |]

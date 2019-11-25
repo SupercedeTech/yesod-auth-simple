@@ -47,8 +47,14 @@ Test-Suite spec
                       , test
   Ghc-Options:          -Wall
   Main-Is:              Spec.hs
-  Build-Depends:        base
-                      , hspec
+  Build-Depends:
+      base
+    , hspec
+    , yesod
+    , yesod-test
+    , yesod-form >=1.6     && <1.7
+    , yesod-core >=1.6.15  && <1.7
+    , persistent-sqlite
 
 Source-Repository head
   Type:                 git
