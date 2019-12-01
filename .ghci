@@ -1,0 +1,10 @@
+:set -i./src:./test
+:set -freverse-errors
+:set -Wall
+:set -Wincomplete-uni-patterns
+:set -Wincomplete-record-updates
+:set -Widentities
+:set -Wredundant-constraints
+:set -Wcpp-undef
+:set -Werror=incomplete-patterns
+:def! test (\expr -> return $ ":!clear\n:l test/Yesod/Auth/SimpleSpec.hs\n:main " ++ expr ++"\n")
