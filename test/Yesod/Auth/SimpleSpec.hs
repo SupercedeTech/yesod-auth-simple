@@ -23,7 +23,6 @@ import           Database.Persist.Sql                 (ConnectionPool,
                                                        runSqlPool, toSqlKey)
 import           Database.Persist.Sqlite              (createSqlitePool)
 import           Network.HTTP.Types.Status            (ok200)
-import           Network.Wai.Middleware.RequestLogger (logStdout)
 import           System.Directory
 import           System.Log.FastLogger                (newStdoutLoggerSet)
 import           Test.Hspec
@@ -111,7 +110,7 @@ withApp = before $ do
   removeIfExists "auth.sqlite3"
   pool <- flip runLoggingT logFunc $ createSqlitePool "auth.sqlite3" 10
   runLoggingT (runSqlPool (runMigration migrateAll) pool) logFunc
-  pure (mkFoundation pool, logStdout)
+  pure (mkFoundation pool, defaultMiddlewaresNoLogging)
 
 runHandler :: Handler a -> YesodExample App a
 runHandler handler = do
