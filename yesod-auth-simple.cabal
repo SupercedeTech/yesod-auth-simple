@@ -35,6 +35,8 @@ Library
     , time
     , wai
     , blaze-html
+    , vector
+    , zxcvbn-hs
     , yesod-auth >= 1.6
     , yesod-core >= 1.6
     , yesod-form >= 1.6
@@ -50,6 +52,7 @@ Test-Suite spec
   Build-Depends:
       base
     , hspec
+    , vector
     , yesod
     , yesod-test
     , yesod-form >=1.6     && <1.7
