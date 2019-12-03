@@ -9,31 +9,29 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
-module Yesod.Auth.SimpleSpec (main) where
+module Yesod.Auth.SimpleSpec (spec) where
 
-import           Control.Monad                        (when)
-import           Control.Monad.Logger                 (runLoggingT)
-import           Data.Coerce                          (coerce)
-import           Data.Text                            (toLower)
+import           Control.Monad             (when)
+import           Control.Monad.Logger      (runLoggingT)
+import           Data.Coerce               (coerce)
+import           Data.Text                 (toLower)
 import           Data.Text.Encoding
-import qualified Data.Vector                          as Vec
-import           Database.Persist.Sql                 (ConnectionPool,
-                                                       SqlBackend, SqlPersistM,
-                                                       SqlPersistT,
-                                                       runMigration,
-                                                       runSqlPersistMPool,
-                                                       runSqlPool, toSqlKey)
-import           Database.Persist.Sqlite              (createSqlitePool)
-import           Network.HTTP.Types.Status            (ok200)
+import qualified Data.Vector               as Vec
+import           Database.Persist.Sql      (ConnectionPool, SqlBackend,
+                                            SqlPersistM, SqlPersistT,
+                                            runMigration, runSqlPersistMPool,
+                                            runSqlPool, toSqlKey)
+import           Database.Persist.Sqlite   (createSqlitePool)
+import           Network.HTTP.Types.Status (ok200)
 import           System.Directory
-import           System.Log.FastLogger                (newStdoutLoggerSet)
+import           System.Log.FastLogger     (newStdoutLoggerSet)
 import           Test.Hspec
-import           Yesod                                hiding (get)
+import           Yesod                     hiding (get)
 import           Yesod.Auth
 import           Yesod.Auth.Simple
-import           Yesod.Core.Types                     (Logger)
-import           Yesod.Core.Unsafe                    (fakeHandlerGetLogger)
-import           Yesod.Default.Config2                (makeYesodLogger)
+import           Yesod.Core.Types          (Logger)
+import           Yesod.Core.Unsafe         (fakeHandlerGetLogger)
+import           Yesod.Default.Config2     (makeYesodLogger)
 import           Yesod.Test
 
 --------------------------------------------------------------------------------
@@ -134,8 +132,8 @@ removeIfExists f = do
   when fileExists (removeFile f)
 
 --------------------------------------------------------------------------------
-main :: IO ()
-main = hspec . withApp $ do
+spec :: Spec
+spec = withApp $ do
 
   describe "registration" $ do
 
