@@ -93,7 +93,7 @@ instance YesodAuthSimple App where
 
   onRegisterSuccess = sendResponseStatus ok200 ()
   insertUser _email _pass = pure . Just $ (toSqlKey 1 :: Key User)
-  commonDomainWords = Vec.fromList ["yesod"]
+  passwordCheck = Zxcvbn Safe (Vec.fromList ["yesod"])
 
 instance YesodAuthPersist App
 

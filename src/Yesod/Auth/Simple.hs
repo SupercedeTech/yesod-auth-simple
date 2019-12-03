@@ -48,6 +48,8 @@ module Yesod.Auth.Simple
   , EncryptedPass(..)
   , Pass(..)
   , encryptPassIO'
+  , PW.Strength(..)
+  , PasswordCheck(..)
   ) where
 
 import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
@@ -85,9 +87,13 @@ import           Yesod.Form                    (ireq, runInputPost, textField)
 
 newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
 
--- | Currently Weak means 'at least 8 chars' while Strong means 'zxcvbn
--- says it takes >10^8 guesses to crack the password'.
-data PasswordStrength = Weak | Strong deriving Show
+-- | `extraWords` are common words, likely in the application domain,
+-- that should be noted in the zxcvbn password strength check. These
+-- words will not be banned in passwords, but they will be noted as
+-- less secure than they could have been otherwise.
+data PasswordCheck = RuleBased { minChars :: Int }
+                   | Zxcvbn { minStrength :: PW.Strength
+                            , extraWords :: Text }
 
 instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
@@ -214,15 +220,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   onPasswordUpdated :: AuthHandler a ()
   onPasswordUpdated = setMessage "Password has been updated"
 
-  -- | Common words, likely in the application domain, that should be
-  -- noted in the zxcvbn password strength check. These words will not
-  -- be banned in passwords, but they will be noted as less secure
-  -- than they could have been otherwise.
-  commonDomainWords :: Vector Text
-  commonDomainWords = Vec.empty
-
-  passwordStrength :: PasswordStrength
-  passwordStrength = Strong
+  passwordCheck :: PasswordCheck
+  passwordCheck = Zxcvbn PW.Safe Vec.empty
 
 authSimple :: YesodAuthSimple m => AuthPlugin m
 authSimple = AuthPlugin "simple" dispatch loginHandlerRedirect
@@ -361,10 +360,7 @@ postConfirmR token = do
 
 createUser :: forall m. YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
 createUser token email password = do
-  today <- liftIO $ utctDay <$> getCurrentTime
-  let extraWords = (commonDomainWords @m)
-      pwStrength = (passwordStrength @m)
-      check = checkPasswordStrength pwStrength extraWords today password
+  check <- liftIO $ checkPasswordStrength (passwordCheck @m) password
   case check of
     Left msg -> do
       setError msg
@@ -402,20 +398,29 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
-checkPasswordStrength :: PasswordStrength -> Vector Text -> Day -> Pass -> Either Text ()
-checkPasswordStrength Weak _ _ x
-  | BS.length (getPass x) >= 8 = Right ()
-  | otherwise = Left "Password must be at least eight characters"
-checkPasswordStrength Strong extraWords day x =
-  case decodeUtf8' (getPass x) of
+checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> Either Text ()
+checkPassWithZxcvbn minStrength extraWords day pass =
+  case decodeUtf8' (getPass pass) of
     Left _ -> Left "Invalid characters in password"
     Right password ->
       let conf = (PW.addCustomFrequencyList extraWords PW.en_US)
           guesses = PW.score conf day password
-      in case PW.strength guesses of
-        PW.Safe -> Right ()
-        PW.Strong -> Right ()
-        _ -> Left "Password is not strong enough"
+      in if PW.strength guesses >= minStrength
+         then Right ()
+         else Left "Password is not strong enough"
+
+checkPassWithRules :: Int -> Pass -> Either Text ()
+checkPassWithRules minLen pass
+  | BS.length (getPass pass) >= minLen = Right ()
+  | otherwise = Left . T.pack $ "Password must be at least "
+                <> show minLen <> " characters"
+
+checkPasswordStrength :: PasswordCheck -> Pass -> IO (Either Text ())
+checkPasswordStrength (RuleBased minLen) pass =
+  pure $ checkPassWithRules minLen pass
+checkPasswordStrength (Zxcvbn minStrength extraWords) pass = do
+  today <- utctDay <$> getCurrentTime
+  pure $ checkPassWithZxcvbn minStrength extraWords today pass
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
@@ -507,9 +512,7 @@ putSetPasswordR = do
 
 setPassword :: forall a. YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
 setPassword uid password = do
-  today <- liftIO $ utctDay <$> getCurrentTime
-  let check = checkPasswordStrength (passwordStrength @a)
-              (commonDomainWords @a) today password
+  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
   case check of
     Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
     Right _  -> do
@@ -525,9 +528,7 @@ setPassToken
   -> Pass
   -> AuthHandler a TypedContent
 setPassToken token uid password = do
-  today <- liftIO $ utctDay <$> getCurrentTime
-  let check = checkPasswordStrength (passwordStrength @a)
-              (commonDomainWords @a) today password
+  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
   case check of
     Left msg -> do
       setError msg
