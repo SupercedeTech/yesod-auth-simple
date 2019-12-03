@@ -7,31 +7,31 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
-module Yesod.Auth.SimpleSpec (main) where
+module Yesod.Auth.SimpleSpec (spec) where
 
-import           Control.Monad                        (when)
-import           Control.Monad.Logger                 (runLoggingT)
-import           Data.Coerce                          (coerce)
-import           Data.Text                            (toLower)
+import           Control.Monad             (when)
+import           Control.Monad.Logger      (runLoggingT)
+import           Data.Coerce               (coerce)
+import           Data.Text                 (toLower)
 import           Data.Text.Encoding
-import           Database.Persist.Sql                 (ConnectionPool,
-                                                       SqlBackend, SqlPersistM,
-                                                       SqlPersistT,
-                                                       runMigration,
-                                                       runSqlPersistMPool,
-                                                       runSqlPool, toSqlKey)
-import           Database.Persist.Sqlite              (createSqlitePool)
-import           Network.HTTP.Types.Status            (ok200)
+import qualified Data.Vector               as Vec
+import           Database.Persist.Sql      (ConnectionPool, SqlBackend,
+                                            SqlPersistM, SqlPersistT,
+                                            runMigration, runSqlPersistMPool,
+                                            runSqlPool, toSqlKey)
+import           Database.Persist.Sqlite   (createSqlitePool)
+import           Network.HTTP.Types.Status (ok200)
 import           System.Directory
-import           System.Log.FastLogger                (newStdoutLoggerSet)
+import           System.Log.FastLogger     (newStdoutLoggerSet)
 import           Test.Hspec
-import           Yesod                                hiding (get)
+import           Yesod                     hiding (get)
 import           Yesod.Auth
 import           Yesod.Auth.Simple
-import           Yesod.Core.Types                     (Logger)
-import           Yesod.Core.Unsafe                    (fakeHandlerGetLogger)
-import           Yesod.Default.Config2                (makeYesodLogger)
+import           Yesod.Core.Types          (Logger)
+import           Yesod.Core.Unsafe         (fakeHandlerGetLogger)
+import           Yesod.Default.Config2     (makeYesodLogger)
 import           Yesod.Test
 
 --------------------------------------------------------------------------------
@@ -92,6 +92,7 @@ instance YesodAuthSimple App where
 
   onRegisterSuccess = sendResponseStatus ok200 ()
   insertUser _email _pass = pure . Just $ (toSqlKey 1 :: Key User)
+  passwordCheck = Zxcvbn Safe (Vec.fromList ["yesod"])
 
 instance YesodAuthPersist App
 
@@ -131,8 +132,8 @@ removeIfExists f = do
   when fileExists (removeFile f)
 
 --------------------------------------------------------------------------------
-main :: IO ()
-main = hspec . withApp $ do
+spec :: Spec
+spec = withApp $ do
 
   describe "registration" $ do
 
@@ -180,7 +181,9 @@ main = hspec . withApp $ do
         request $ do
           setMethod "POST"
           setUrl $ AuthR $ confirmR t
-          byLabelExact "Password" "123"
+          -- NB: The following password would be fine without the
+          -- commonDomainWords definition
+          byLabelExact "Password" "hello yesod 123"
         r <- followRedirect
         assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
 
@@ -188,6 +191,7 @@ main = hspec . withApp $ do
 
       it "inserts a new user" $ do
         let email = "user@example.com"
+        ur <- runHandler getUrlRender
         get $ AuthR registerR
         request $ do
           setMethod "POST"
@@ -198,7 +202,9 @@ main = hspec . withApp $ do
         request $ do
           setMethod "POST"
           setUrl $ AuthR $ confirmR token
-          byLabelExact "Password" "strongpass"
+          byLabelExact "Password" "really difficult yesod password here"
+        r <- followRedirect
+        assertNotEq "path is not confirmation form" (Right (ur (AuthR (confirmR token)))) r
 
     describe "with an invalid token" $
 

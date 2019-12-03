@@ -4,6 +4,9 @@
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE Rank2Types                 #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE AllowAmbiguousTypes        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 
 -- | A Yesod plugin for traditional email/password authentication
 --
@@ -45,6 +48,8 @@ module Yesod.Auth.Simple
   , EncryptedPass(..)
   , Pass(..)
   , encryptPassIO'
+  , PW.Strength(..)
+  , PasswordCheck(..)
   ) where
 
 import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
@@ -58,10 +63,12 @@ import           Data.Function                 ((&))
 import           Data.Maybe                    (fromJust)
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
-import           Data.Text.Encoding            (decodeUtf8With, encodeUtf8)
+import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error      (lenientDecode)
-import           Data.Time                     (UTCTime, addUTCTime,
+import           Data.Time                     (UTCTime(..), Day, addUTCTime,
                                                 diffUTCTime, getCurrentTime)
+import           Data.Vector                   (Vector)
+import qualified Data.Vector                   as Vec
 import           Database.Persist.Sql          (PersistField, PersistFieldSql,
                                                 PersistValue (PersistText),
                                                 SqlType (SqlString),
@@ -71,12 +78,22 @@ import           Network.HTTP.Types            (badRequest400)
 import           Network.Wai                   (responseBuilder)
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 import           Text.Email.Validate           (canonicalizeEmail)
+import qualified Text.Password.Strength        as PW
+import qualified Text.Password.Strength.Config as PW
 import qualified Web.ClientSession             as CS
 import           Yesod.Auth
 import           Yesod.Core
 import           Yesod.Form                    (ireq, runInputPost, textField)
 
 newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
+
+-- | `extraWords` are common words, likely in the application domain,
+-- that should be noted in the zxcvbn password strength check. These
+-- words will not be banned in passwords, but they will be noted as
+-- less secure than they could have been otherwise.
+data PasswordCheck = RuleBased { minChars :: Int }
+                   | Zxcvbn { minStrength :: PW.Strength
+                            , extraWords :: Vector Text }
 
 instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
@@ -202,6 +219,9 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   onPasswordUpdated :: AuthHandler a ()
   onPasswordUpdated = setMessage "Password has been updated"
+
+  passwordCheck :: PasswordCheck
+  passwordCheck = Zxcvbn PW.Safe Vec.empty
 
 authSimple :: YesodAuthSimple m => AuthPlugin m
 authSimple = AuthPlugin "simple" dispatch loginHandlerRedirect
@@ -338,23 +358,25 @@ postConfirmR token = do
     Right email ->
       createUser token email (Pass . encodeUtf8 $ password)
 
-createUser :: YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
-createUser token email password = case checkPasswordStrength password of
-  Left msg -> do
-    setError msg
-    tp <- getRouteToParent
-    redirect $ tp $ confirmR token
-  Right _ -> do
-    encrypted <- liftIO $ encryptPassIO' password
-    mUid      <- insertUser email encrypted
-    case mUid of
-      Just uid -> do
-        let creds = Creds "simple" (toPathPiece uid) []
-        setCreds False creds
-        onRegisterSuccess
-      Nothing -> do
-        tp <- getRouteToParent
-        redirect $ tp userExistsR
+createUser :: forall m. YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
+createUser token email password = do
+  check <- liftIO $ checkPasswordStrength (passwordCheck @m) password
+  case check of
+    Left msg -> do
+      setError msg
+      tp <- getRouteToParent
+      redirect $ tp $ confirmR token
+    Right _ -> do
+      encrypted <- liftIO $ encryptPassIO' password
+      mUid      <- insertUser email encrypted
+      case mUid of
+        Just uid -> do
+          let creds = Creds "simple" (toPathPiece uid) []
+          setCreds False creds
+          onRegisterSuccess
+        Nothing -> do
+          tp <- getRouteToParent
+          redirect $ tp userExistsR
 
 getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmationEmailSentR = selectRep . provideRep . authLayout $ do
@@ -376,10 +398,29 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
-checkPasswordStrength :: Pass -> Either Text ()
-checkPasswordStrength x
-  | BS.length (getPass x) >= 8 = Right ()
-  | otherwise = Left "Password must be at least eight characters"
+checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> Either Text ()
+checkPassWithZxcvbn minStrength' extraWords' day pass =
+  case decodeUtf8' (getPass pass) of
+    Left _ -> Left "Invalid characters in password"
+    Right password ->
+      let conf = (PW.addCustomFrequencyList extraWords' PW.en_US)
+          guesses = PW.score conf day password
+      in if PW.strength guesses >= minStrength'
+         then Right ()
+         else Left "Password is not strong enough"
+
+checkPassWithRules :: Int -> Pass -> Either Text ()
+checkPassWithRules minLen pass
+  | BS.length (getPass pass) >= minLen = Right ()
+  | otherwise = Left . T.pack $ "Password must be at least "
+                <> show minLen <> " characters"
+
+checkPasswordStrength :: PasswordCheck -> Pass -> IO (Either Text ())
+checkPasswordStrength (RuleBased minLen) pass =
+  pure $ checkPassWithRules minLen pass
+checkPasswordStrength (Zxcvbn minStrength' extraWords') pass = do
+  today <- utctDay <$> getCurrentTime
+  pure $ checkPassWithZxcvbn minStrength' extraWords' today pass
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
@@ -469,31 +510,35 @@ putSetPasswordR = do
   let password = Pass . encodeUtf8 $ unPasswordReq req
   setPassword uid password
 
-setPassword :: YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
-setPassword uid password = case checkPasswordStrength password of
-  Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
-  Right _  -> do
-    encrypted <- liftIO $ encryptPassIO' password
-    _         <- updateUserPassword uid encrypted
-    onPasswordUpdated
-    return $ object []
+setPassword :: forall a. YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
+setPassword uid password = do
+  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
+  case check of
+    Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
+    Right _  -> do
+      encrypted <- liftIO $ encryptPassIO' password
+      _         <- updateUserPassword uid encrypted
+      onPasswordUpdated
+      return $ object []
 
 setPassToken
-  :: YesodAuthSimple a
+  :: forall a. YesodAuthSimple a
   => Text
   -> AuthSimpleId a
   -> Pass
   -> AuthHandler a TypedContent
-setPassToken token uid password = case checkPasswordStrength password of
-  Left msg -> do
-    setError msg
-    tp <- getRouteToParent
-    redirect $ tp $ setPasswordTokenR token
-  Right _ -> do
-    encrypted <- liftIO $ encryptPassIO' password
-    _         <- updateUserPassword uid encrypted
-    onPasswordUpdated
-    setCredsRedirect $ Creds "simple" (toPathPiece uid) []
+setPassToken token uid password = do
+  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
+  case check of
+    Left msg -> do
+      setError msg
+      tp <- getRouteToParent
+      redirect $ tp $ setPasswordTokenR token
+    Right _ -> do
+      encrypted <- liftIO $ encryptPassIO' password
+      _         <- updateUserPassword uid encrypted
+      onPasswordUpdated
+      setCredsRedirect $ Creds "simple" (toPathPiece uid) []
 
 verifyRegisterToken :: Text -> IO (Either Text Email)
 verifyRegisterToken token = do
@@ -713,4 +758,3 @@ registerTemplateDef toParent mErr = [whamlet|
       <button type="submit">Register
       <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
 |]
-
