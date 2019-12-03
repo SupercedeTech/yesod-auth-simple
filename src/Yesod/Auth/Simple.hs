@@ -399,13 +399,13 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
   userExistsTemplate
 
 checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> Either Text ()
-checkPassWithZxcvbn minStrength extraWords day pass =
+checkPassWithZxcvbn minStrength' extraWords' day pass =
   case decodeUtf8' (getPass pass) of
     Left _ -> Left "Invalid characters in password"
     Right password ->
-      let conf = (PW.addCustomFrequencyList extraWords PW.en_US)
+      let conf = (PW.addCustomFrequencyList extraWords' PW.en_US)
           guesses = PW.score conf day password
-      in if PW.strength guesses >= minStrength
+      in if PW.strength guesses >= minStrength'
          then Right ()
          else Left "Password is not strong enough"
 
@@ -418,9 +418,9 @@ checkPassWithRules minLen pass
 checkPasswordStrength :: PasswordCheck -> Pass -> IO (Either Text ())
 checkPasswordStrength (RuleBased minLen) pass =
   pure $ checkPassWithRules minLen pass
-checkPasswordStrength (Zxcvbn minStrength extraWords) pass = do
+checkPasswordStrength (Zxcvbn minStrength' extraWords') pass = do
   today <- utctDay <$> getCurrentTime
-  pure $ checkPassWithZxcvbn minStrength extraWords today pass
+  pure $ checkPassWithZxcvbn minStrength' extraWords' today pass
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
