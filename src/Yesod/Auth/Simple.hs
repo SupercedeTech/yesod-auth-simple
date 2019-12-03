@@ -93,7 +93,7 @@ newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
 -- less secure than they could have been otherwise.
 data PasswordCheck = RuleBased { minChars :: Int }
                    | Zxcvbn { minStrength :: PW.Strength
-                            , extraWords :: Text }
+                            , extraWords :: Vector Text }
 
 instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
