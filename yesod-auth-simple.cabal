@@ -82,8 +82,12 @@ Test-Suite spec
     , zxcvbn-hs
 
   Other-Modules:
+    ExampleApp
+    TestImport
     Yesod.Auth.Simple
+    Yesod.Auth.Simple.Types
     Yesod.Auth.SimpleSpec
+    Yesod.Auth.Simple.TypesSpec
 
 Source-Repository head
   Type:                 git
