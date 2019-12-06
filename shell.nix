@@ -1,6 +1,7 @@
 let
   compiler = "ghc865";
-  pkgs = import ./nixpkgs.nix {};
+  config = import ./pkgconfig.nix { inherit compiler; };
+  pkgs = import ./nixpkgs.nix { inherit config; };
   hpkgs = pkgs.haskell.packages.${compiler};
   pkg = hpkgs.callPackage (import ./yesod-auth-simple.nix) {};
 

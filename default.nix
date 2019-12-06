@@ -4,7 +4,8 @@ let
 
 in
 
-  { pkgs ? import pinned {}
+  { pkgs ? import pinned { inherit config; }
+  , config ? import ./pkgconfig.nix { inherit compiler; }
   , compiler ? "ghc865"
   }:
 

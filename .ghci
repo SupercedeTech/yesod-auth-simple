@@ -7,4 +7,4 @@
 :set -Wredundant-constraints
 :set -Wcpp-undef
 :set -Werror=incomplete-patterns
-:def! test (\expr -> return $ ":!clear\n:l test/Yesod/Auth/SimpleSpec.hs\n:main " ++ expr ++"\n")
+:def! test (\expr -> return $ ":!clear\n:l test/Spec.hs\n:main " ++ expr ++"\n")
