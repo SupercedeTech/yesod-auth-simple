@@ -1,3 +1,7 @@
 let
-  url = "https://github.com/NixOS/nixpkgs/archive/91d5b3f07d27622ff620ff31fa5edce15a5822fa.tar.gz";
-in import (builtins.fetchTarball url)
+  owner = "NixOS";
+  repo = "nixpkgs";
+  rev = "b2448a9fde1225c3681e576ab4d35d68631ca75e";
+  url = "https://github.com/${owner}/${repo}/archive/${rev}.tar.gz";
+in
+  import (builtins.fetchTarball url)
