@@ -1,13 +1,12 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE QuasiQuotes                #-}
-{-# LANGUAGE Rank2Types                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 -- | A Yesod plugin for traditional email/password authentication
 --
@@ -71,11 +70,6 @@ import           Data.Time                     (Day, UTCTime (..), addUTCTime,
                                                 diffUTCTime, getCurrentTime)
 import           Data.Vector                   (Vector)
 import qualified Data.Vector                   as Vec
-import           Database.Persist.Sql          (PersistField, PersistFieldSql,
-                                                PersistValue (PersistText),
-                                                SqlType (SqlString),
-                                                fromPersistValue, sqlType,
-                                                toPersistValue)
 import           Network.HTTP.Types            (badRequest400)
 import           Network.Wai                   (responseBuilder)
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
@@ -84,25 +78,10 @@ import qualified Text.Password.Strength        as PW
 import qualified Text.Password.Strength.Config as PW
 import qualified Web.ClientSession             as CS
 import           Yesod.Auth
+import           Yesod.Auth.Simple.Types
 import           Yesod.Core
 import           Yesod.Form                    (ireq, runInputPost, textField)
 
-newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
-
--- | `extraWords` are common words, likely in the application domain,
--- that should be noted in the zxcvbn password strength check. These
--- words will not be banned in passwords, but they will be noted as
--- less secure than they could have been otherwise.
-data PasswordCheck = RuleBased { minChars :: Int }
-                   | Zxcvbn { minStrength :: PW.Strength
-                            , extraWords  :: Vector Text }
-
-instance FromJSON PasswordReq where
-  parseJSON = withObject "req" $ \o -> do
-    password <- o .: "password"
-    return $ PasswordReq password
-
---------------------------------------------------------------------------------
 confirmR :: Text -> AuthRoute
 confirmR token = PluginR "simple" ["confirm", token]
 
@@ -132,36 +111,6 @@ setPasswordTokenR token = PluginR "simple" ["set-password", token]
 
 userExistsR :: AuthRoute
 userExistsR = PluginR "simple" ["user-exists"]
-
---------------------------------------------------------------------------------
-newtype Email = Email Text
-  deriving (Eq, Show, ToJSON, FromJSON)
-
-instance PersistFieldSql Email where
-  sqlType = const SqlString
-
-instance PersistField Email where
-  toPersistValue (Email e) = toPersistValue e
-  fromPersistValue (PersistText e) = Right $ Email e
-  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
-
---------------------------------------------------------------------------------
-newtype Password = Password Text
-  deriving(Eq, ToJSON, FromJSON)
-
-instance Show Password where
-  show _ = "<redacted>"
-
-instance PersistFieldSql Password where
-  sqlType = const SqlString
-
-instance PersistField Password where
-  toPersistValue (Password e) = toPersistValue e
-  fromPersistValue (PersistText e) = Right $ Password e
-  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
-
---------------------------------------------------------------------------------
-type VerUrl = Text
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   type AuthSimpleId a
