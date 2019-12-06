@@ -45,6 +45,9 @@ Library
     , yesod-form >= 1.6
     , persistent >= 2.8.2
 
+  Other-Modules:
+    Yesod.Auth.Simple.Types
+
 Test-Suite spec
   Type:                 exitcode-stdio-1.0
   Default-Language:     Haskell2010
