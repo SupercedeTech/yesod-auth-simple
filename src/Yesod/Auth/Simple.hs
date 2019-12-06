@@ -628,7 +628,7 @@ redirectTemplate destUrl = do
   toWidget
     [julius|window.location = "@{destUrl}";|]
 
-loginTemplateDef :: YesodAuthSimple a => (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
 loginTemplateDef toParent mErr = [whamlet|
   $newline never
   $maybe err <- mErr
@@ -649,7 +649,7 @@ loginTemplateDef toParent mErr = [whamlet|
       Need an account? <a href="@{toParent registerR}">Register</a>.
   |]
 
-setPasswordTemplateDef :: YesodAuthSimple a => Route a -> Maybe Text -> WidgetFor a ()
+setPasswordTemplateDef :: Route a -> Maybe Text -> WidgetFor a ()
 setPasswordTemplateDef url mErr = [whamlet|
   $newline never
   $maybe err <- mErr
@@ -663,7 +663,7 @@ setPasswordTemplateDef url mErr = [whamlet|
     <button type="submit">Save
   |]
 
-invalidTokenTemplateDef :: YesodAuthSimple a => Text -> WidgetFor a ()
+invalidTokenTemplateDef :: Text -> WidgetFor a ()
 invalidTokenTemplateDef msg = [whamlet|
   $newline never
   <.invalid-token>
@@ -671,7 +671,7 @@ invalidTokenTemplateDef msg = [whamlet|
     <p>#{msg}
 |]
 
-userExistsTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+userExistsTemplateDef :: WidgetFor a ()
 userExistsTemplateDef = [whamlet|
   $newline never
   <.user-exists>
@@ -679,14 +679,14 @@ userExistsTemplateDef = [whamlet|
     <p>User already exists
 |]
 
-registerSuccessTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+registerSuccessTemplateDef :: WidgetFor a ()
 registerSuccessTemplateDef = [whamlet|
   $newline never
   <.register-success>
     <h1>Account created!
 |]
 
-resetPasswordEmailSentTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+resetPasswordEmailSentTemplateDef :: WidgetFor a ()
 resetPasswordEmailSentTemplateDef = [whamlet|
   $newline never
   <.password-reset-email-sent>
@@ -695,7 +695,7 @@ resetPasswordEmailSentTemplateDef = [whamlet|
     <p>Click on the link in the email to complete the password reset.
 |]
 
-confirmationEmailSentTemplateDef :: YesodAuthSimple a => WidgetFor a ()
+confirmationEmailSentTemplateDef :: WidgetFor a ()
 confirmationEmailSentTemplateDef = [whamlet|
   $newline never
   <.confirmation-email-sent">
