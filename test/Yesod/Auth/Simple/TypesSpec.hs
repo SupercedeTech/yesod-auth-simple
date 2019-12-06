@@ -6,13 +6,14 @@ import           Data.Aeson (encode)
 import           TestImport
 
 spec :: Spec
-spec = do
+spec =
 
   describe "Password" $ do
-    describe "Show instance" $ do
-      it "redacts password" $ do
+
+    describe "Show instance" $
+      it "redacts password" $
         show (Password "strongpass") `shouldBe` "<redacted>"
 
-    describe "ToJSON instance" $ do
-      it "redacts password" $ do
+    describe "ToJSON instance" $
+      it "redacts password" $
         encode (Password "strongpass") `shouldBe` "\"<redacted>\""

@@ -351,7 +351,7 @@ checkPassWithZxcvbn minStrength' extraWords' day pass =
   case decodeUtf8' (getPass pass) of
     Left _ -> Left "Invalid characters in password"
     Right password ->
-      let conf = (PW.addCustomFrequencyList extraWords' PW.en_US)
+      let conf = PW.addCustomFrequencyList extraWords' PW.en_US
           guesses = PW.score conf day password
       in if PW.strength guesses >= minStrength'
          then Right ()
@@ -537,15 +537,14 @@ decryptPasswordResetToken ciphertext = do
   key <- liftIO getDefaultKey
   case CS.decrypt key (decodeToken ciphertext) of
 
-    Just bytes -> do
-      case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
-        [expires, modified, uid] -> return . toEither $ do
-          e <- readMay $ unpack expires
-          m <- readMay $ unpack modified
-          u <- fromPathPiece uid
-          Just (e, m, u)
+    Just bytes -> case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
+      [expires, modified, uid] -> return . toEither $ do
+        e <- readMay $ unpack expires
+        m <- readMay $ unpack modified
+        u <- fromPathPiece uid
+        Just (e, m, u)
 
-        _ -> return err
+      _ -> return err
 
     Nothing -> return err
   where
@@ -566,12 +565,11 @@ decryptRegisterToken :: Text -> IO (Either Text (UTCTime, Email))
 decryptRegisterToken ciphertext = do
   key <- getDefaultKey
   case CS.decrypt key (decodeToken ciphertext) of
-    Just bytes -> do
-      case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
-        [expires, email] -> return . toEither $ do
-          e <- readMay (unpack expires) :: Maybe UTCTime
-          Just (e, Email email)
-        _ -> return err
+    Just bytes -> case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
+      [expires, email] -> return . toEither $ do
+        e <- readMay (unpack expires) :: Maybe UTCTime
+        Just (e, Email email)
+      _ -> return err
     Nothing -> return err
   where
     err = Left "Failed to decode key"

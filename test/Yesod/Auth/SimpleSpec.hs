@@ -1,7 +1,5 @@
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE QuasiQuotes          #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Yesod.Auth.SimpleSpec (spec) where
 
@@ -62,7 +60,7 @@ spec = withApp $ do
         r <- followRedirect
         assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
 
-    describe "with an adequately strong password" $ do
+    describe "with an adequately strong password" $
 
       it "inserts a new user" $ do
         let email = "user@example.com"
