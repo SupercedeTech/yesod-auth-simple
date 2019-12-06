@@ -7,4 +7,5 @@
 :set -Wredundant-constraints
 :set -Wcpp-undef
 :set -Werror=incomplete-patterns
+:set -XNoImplicitPrelude
 :def! test (\expr -> return $ ":!clear\n:l test/Spec.hs\n:main " ++ expr ++"\n")

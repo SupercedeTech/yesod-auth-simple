@@ -20,6 +20,7 @@ Library
   Default-Language:     Haskell2010
   HS-Source-Dirs:       src
   GHC-Options:          -Wall
+  Default-Extensions:   NoImplicitPrelude
   Exposed-Modules:      Yesod.Auth.Simple
   Build-Depends:
       base >= 4 && < 5
@@ -27,6 +28,8 @@ Library
     , base16-bytestring
     , base64-bytestring
     , bytestring
+    , classy-prelude        >= 0.10.2
+    , classy-prelude-yesod  >= 1.1
     , clientsession
     , email-validate
     , http-types
@@ -45,9 +48,9 @@ Library
 Test-Suite spec
   Type:                 exitcode-stdio-1.0
   Default-Language:     Haskell2010
-  Hs-Source-Dirs:       src
-                      , test
+  Hs-Source-Dirs:       src, test
   Ghc-Options:          -Wall
+  Default-Extensions:   NoImplicitPrelude
   Main-Is:              Spec.hs
   Build-Depends:
       base >= 4 && < 5
@@ -56,6 +59,8 @@ Test-Suite spec
     , base64-bytestring
     , blaze-html
     , bytestring
+    , classy-prelude        >= 0.10.2
+    , classy-prelude-yesod  >= 1.1
     , clientsession
     , directory
     , email-validate

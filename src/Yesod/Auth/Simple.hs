@@ -1,12 +1,13 @@
+{-# LANGUAGE AllowAmbiguousTypes        #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE Rank2Types                 #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 -- | A Yesod plugin for traditional email/password authentication
 --
@@ -52,6 +53,7 @@ module Yesod.Auth.Simple
   , PasswordCheck(..)
   ) where
 
+import           ClassyPrelude
 import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
                                                 encryptPassIO', verifyPass')
 import           Data.Aeson
@@ -63,9 +65,9 @@ import           Data.Function                 ((&))
 import           Data.Maybe                    (fromJust)
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
-import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With, encodeUtf8)
+import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With)
 import           Data.Text.Encoding.Error      (lenientDecode)
-import           Data.Time                     (UTCTime(..), Day, addUTCTime,
+import           Data.Time                     (Day, UTCTime (..), addUTCTime,
                                                 diffUTCTime, getCurrentTime)
 import           Data.Vector                   (Vector)
 import qualified Data.Vector                   as Vec
@@ -93,15 +95,12 @@ newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
 -- less secure than they could have been otherwise.
 data PasswordCheck = RuleBased { minChars :: Int }
                    | Zxcvbn { minStrength :: PW.Strength
-                            , extraWords :: Vector Text }
+                            , extraWords  :: Vector Text }
 
 instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
     password <- o .: "password"
     return $ PasswordReq password
-
-tshow :: Show a => a -> Text
-tshow = T.pack . show
 
 --------------------------------------------------------------------------------
 confirmR :: Text -> AuthRoute
@@ -551,7 +550,10 @@ verifyRegisterToken token = do
       then return $ Right email
       else return $ Left "Verification key has expired"
 
-verifyPasswordResetToken :: YesodAuthSimple a => Text -> AuthHandler a (Either Text (AuthSimpleId a))
+verifyPasswordResetToken
+  :: YesodAuthSimple a
+  => Text
+  -> AuthHandler a (Either Text (AuthSimpleId a))
 verifyPasswordResetToken token = do
   res <- decryptPasswordResetToken token
   case res of
@@ -566,7 +568,11 @@ verifyPasswordResetToken token = do
 getDefaultKey :: IO CS.Key
 getDefaultKey = CS.getKeyEnv "SESSION_KEY"
 
-encryptPasswordResetToken :: YesodAuthSimple a => AuthSimpleId a -> UTCTime -> AuthHandler a Text
+encryptPasswordResetToken
+  :: YesodAuthSimple a
+  => AuthSimpleId a
+  -> UTCTime
+  -> AuthHandler a Text
 encryptPasswordResetToken uid modified = do
   expires <- liftIO $ addUTCTime 3600 <$> getCurrentTime
   key <- liftIO getDefaultKey
@@ -574,20 +580,30 @@ encryptPasswordResetToken uid modified = do
   ciphertext <- liftIO $ CS.encryptIO key $ encodeUtf8 cleartext
   return $ encodeToken ciphertext
 
-decryptPasswordResetToken :: YesodAuthSimple a => Text -> AuthHandler a (Either Text (UTCTime, UTCTime, AuthSimpleId a))
+decryptPasswordResetToken
+  :: YesodAuthSimple a
+  => Text
+  -> AuthHandler a (Either Text (UTCTime, UTCTime, AuthSimpleId a))
 decryptPasswordResetToken ciphertext = do
   key <- liftIO getDefaultKey
   case CS.decrypt key (decodeToken ciphertext) of
+
     Just bytes -> do
-      let cleartext = decodeUtf8With lenientDecode bytes
-      -- TODO: Fix this incomplete pattern
-      let [expires, modified, uid] = T.splitOn "|" cleartext
-      return $ Right (
-          read $ T.unpack expires :: UTCTime,
-          read $ T.unpack modified :: UTCTime,
-          fromJust $ fromPathPiece uid)
-    Nothing ->
-      return $ Left "Failed to decode key"
+      case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
+        [expires, modified, uid] -> return . toEither $ do
+          e <- readMay $ unpack expires
+          m <- readMay $ unpack modified
+          u <- fromPathPiece uid
+          Just (e, m, u)
+
+        _ -> return err
+
+    Nothing -> return err
+  where
+    err = Left "Failed to decode key"
+    toEither = \case
+      Just v -> Right v
+      Nothing -> err
 
 encryptRegisterToken :: Email -> IO Text
 encryptRegisterToken (Email email) = do
@@ -602,12 +618,17 @@ decryptRegisterToken ciphertext = do
   key <- getDefaultKey
   case CS.decrypt key (decodeToken ciphertext) of
     Just bytes -> do
-      let cleartext = decodeUtf8With lenientDecode bytes
-      let [expires, email] = T.splitOn "|" cleartext
-      return $
-        Right (read $ T.unpack expires :: UTCTime, (Email email))
-    Nothing ->
-      return $ Left "Failed to decode key"
+      case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
+        [expires, email] -> return . toEither $ do
+          e <- readMay (unpack expires) :: Maybe UTCTime
+          Just (e, Email email)
+        _ -> return err
+    Nothing -> return err
+  where
+    err = Left "Failed to decode key"
+    toEither = \case
+      Just v -> Right v
+      Nothing -> err
 
 -- Re-encode to url-safe base64
 encodeToken :: ByteString -> Text
