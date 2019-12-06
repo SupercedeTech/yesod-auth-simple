@@ -38,10 +38,13 @@ instance PersistField Email where
   fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
 
 newtype Password = Password Text
-  deriving(Eq, ToJSON, FromJSON)
+  deriving (Eq, FromJSON)
 
 instance Show Password where
   show _ = "<redacted>"
+
+instance ToJSON Password where
+  toJSON _ = String "<redacted>"
 
 instance PersistFieldSql Password where
   sqlType = const SqlString
