@@ -28,6 +28,7 @@ module Yesod.Auth.Simple
   , userExistsR
   , registerSuccessR
   , confirmationEmailSentR
+  , passwordStrengthR
     -- * Default widgets
   , loginTemplateDef
   , setPasswordTemplateDef
@@ -39,17 +40,20 @@ module Yesod.Auth.Simple
   , confirmTempateDef
   , resetPasswordTemplateDef
   , registerTemplateDef
+  , passwordFieldTemplateBasic
+  , passwordFieldTemplateZxcvbn
     -- * Misc
   , encryptRegisterToken
+  , maxPasswordLength
     -- * Types
   , Email(..)
   , Password(..)
+  , PW.Strength(..)
+  , PasswordCheck(..)
     -- * Re-export from Scrypt
   , EncryptedPass(..)
   , Pass(..)
   , encryptPassIO'
-  , PW.Strength(..)
-  , PasswordCheck(..)
   ) where
 
 import           ClassyPrelude
@@ -80,7 +84,11 @@ import qualified Web.ClientSession             as CS
 import           Yesod.Auth
 import           Yesod.Auth.Simple.Types
 import           Yesod.Core
+import           Yesod.Core.Json               as J
 import           Yesod.Form                    (ireq, runInputPost, textField)
+
+maxPasswordLength :: Int
+maxPasswordLength = 150 -- zxcvbn takes too long after this point
 
 confirmR :: Text -> AuthRoute
 confirmR token = PluginR "simple" ["confirm", token]
@@ -112,6 +120,9 @@ setPasswordTokenR token = PluginR "simple" ["set-password", token]
 userExistsR :: AuthRoute
 userExistsR = PluginR "simple" ["user-exists"]
 
+passwordStrengthR :: AuthRoute
+passwordStrengthR = PluginR "simple" ["password-strength"]
+
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   type AuthSimpleId a
 
@@ -135,6 +146,12 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   sendResetPasswordEmail :: Email -> VerUrl -> AuthHandler a ()
   sendResetPasswordEmail _ = liftIO . print
 
+  passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
+  passwordFieldTemplate tp =
+    case passwordCheck @a of
+      Zxcvbn minStren extraWords' -> passwordFieldTemplateZxcvbn tp minStren extraWords'
+      RuleBased _ -> passwordFieldTemplateBasic
+
   loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
   loginTemplate = loginTemplateDef
 
@@ -144,7 +161,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   resetPasswordTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
   resetPasswordTemplate = resetPasswordTemplateDef
 
-  confirmTemplate :: Route a -> Email -> Maybe Text -> WidgetFor a ()
+  confirmTemplate :: (AuthRoute -> Route a) -> Route a -> Email -> Maybe Text -> WidgetFor a ()
   confirmTemplate = confirmTempateDef
 
   confirmationEmailSentTemplate :: WidgetFor a ()
@@ -162,7 +179,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   invalidTokenTemplate :: Text -> WidgetFor a ()
   invalidTokenTemplate = invalidTokenTemplateDef
 
-  setPasswordTemplate :: Route a -> Maybe Text -> WidgetFor a ()
+  setPasswordTemplate :: (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
   setPasswordTemplate = setPasswordTemplateDef
 
   onPasswordUpdated :: AuthHandler a ()
@@ -194,6 +211,9 @@ dispatch "POST" ["set-password", token] = postSetPasswordTokenR token >>= sendRe
 dispatch "GET"  ["reset-password"] = getResetPasswordR >>= sendResponse
 dispatch "POST" ["reset-password"] = postResetPasswordR >>= sendResponse
 dispatch "GET"  ["reset-password-email-sent"] = getResetPasswordEmailSentR >>= sendResponse
+-- NB: We use a POST instead of GET so that we don't send the password
+-- in the URL query string
+dispatch "POST" ["password-strength"] = postPasswordStrengthR >>= sendResponse
 dispatch _ _ = notFound
 
 getRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
@@ -291,9 +311,10 @@ confirmHandlerHelper token email = do
 confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a TypedContent
 confirmHandler registerUrl email = do
   mErr <- getError
+  tp <- getRouteToParent
   selectRep . provideRep . authLayout $ do
     setTitle "Confirm account"
-    confirmTemplate registerUrl email mErr
+    confirmTemplate tp registerUrl email mErr
 
 postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postConfirmR token = do
@@ -346,16 +367,31 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
-checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> Either Text ()
+postPasswordStrengthR :: forall a. (YesodAuthSimple a) => AuthHandler a J.Value
+postPasswordStrengthR = do
+  today <- utctDay <$> liftIO getCurrentTime
+  password <- runInputPost (ireq textField "password")
+  let pass = Pass . encodeUtf8 $ password
+  J.returnJson $ case passwordCheck @a of
+    Zxcvbn minStren extraWs -> checkPassWithZxcvbn minStren extraWs today pass
+    RuleBased minLen -> case checkPassWithRules minLen pass of
+      Left _ -> PasswordStrength False PW.Weak
+      Right _ -> PasswordStrength True PW.Safe
+
+checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> PasswordStrength
 checkPassWithZxcvbn minStrength' extraWords' day pass =
   case decodeUtf8' (getPass pass) of
-    Left _ -> Left "Invalid characters in password"
+    Left _ -> PasswordStrength False PW.Risky
     Right password ->
       let conf = PW.addCustomFrequencyList extraWords' PW.en_US
           guesses = PW.score conf day password
-      in if PW.strength guesses >= minStrength'
-         then Right ()
-         else Left "Password is not strong enough"
+          stren = PW.strength guesses
+      in PasswordStrength (stren >= minStrength') stren
+
+strengthToEither :: PasswordStrength -> Either Text ()
+strengthToEither (PasswordStrength True _) = Right ()
+strengthToEither (PasswordStrength False _) =
+  Left "The password is not strong enough"
 
 checkPassWithRules :: Int -> Pass -> Either Text ()
 checkPassWithRules minLen pass
@@ -368,7 +404,8 @@ checkPasswordStrength (RuleBased minLen) pass =
   pure $ checkPassWithRules minLen pass
 checkPasswordStrength (Zxcvbn minStrength' extraWords') pass = do
   today <- utctDay <$> getCurrentTime
-  pure $ checkPassWithZxcvbn minStrength' extraWords' today pass
+  pure . strengthToEither $
+    checkPassWithZxcvbn minStrength' extraWords' today pass
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
@@ -425,7 +462,7 @@ getSetPasswordR = do
       mErr <- getError
       selectRep . provideRep . authLayout $ do
         setTitle "Set password"
-        setPasswordTemplate (tp setPasswordR) mErr
+        setPasswordTemplate tp (tp setPasswordR) mErr
     Nothing -> redirect $ tp loginR
 
 getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
@@ -438,7 +475,7 @@ getSetPasswordTokenR token = do
       mErr <- getError
       selectRep . provideRep . authLayout $ do
         setTitle "Set password"
-        setPasswordTemplate (tp $ setPasswordTokenR token) mErr
+        setPasswordTemplate tp (tp $ setPasswordTokenR token) mErr
 
 -- | Set a new password for the user
 postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
@@ -617,19 +654,198 @@ loginTemplateDef toParent mErr = [whamlet|
       Need an account? <a href="@{toParent registerR}">Register</a>.
   |]
 
-setPasswordTemplateDef :: Route a -> Maybe Text -> WidgetFor a ()
-setPasswordTemplateDef url mErr = [whamlet|
+passwordFieldTemplateBasic :: WidgetFor a ()
+passwordFieldTemplateBasic = [whamlet|
   $newline never
-  $maybe err <- mErr
-    <div class="alert">#{err}
-
-  <h1>Set new password
-  <form method="post" action="@{url}">
-    <fieldset>
-      <label for="password">Password
-      <input type="password" name="password" autofocus required>
-    <button type="submit">Save
+  <fieldset>
+    <label for="password">Password
+    <input type="password" name="password" autofocus required>
   |]
+
+zxcvbnJsUrl :: Text
+zxcvbnJsUrl = "https://cdn.jsdelivr.net/npm/zxcvbn@4.4.2/dist/zxcvbn.js"
+
+passwordFieldTemplateZxcvbn :: (AuthRoute -> Route a) -> PW.Strength -> Vector Text -> WidgetFor a ()
+passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
+  let extraWordsStr = T.unwords . toList $ extraWords'
+      blankPasswordScore = PasswordStrength False PW.Risky
+  addScriptRemote zxcvbnJsUrl
+  toWidget
+    [hamlet|
+      $newline never
+      <fieldset>
+        <label for="password">Password
+        <input#password type="password" name="password" autofocus required>
+        <#yas--extra-words data-extra-words="#{extraWordsStr}">
+        <#yas--password-feedback>
+          <.yas--password-meter-container>
+            <.yas--password-meter.yas--strength-init>
+          <.yas--password-errors>
+            <p.yas--password-warning>
+            <.yas--password-suggestions>
+     |]
+  toWidget
+    [lucius|
+      .yas--extra-words { display: none; }
+      .yas--password-meter-container {
+        height: 5px;
+        background-color: #C7C7C7;
+        .yas--password-meter {
+          height: 100%;
+          transition: background-color 1s, margin-right 1s;
+        }
+        .yas--password-meter.yas--strength-init {
+          margin-right: 100%;
+        }
+        .yas--password-meter.yas--strength-0 {
+          background-color: #ff0000;
+          margin-right: 90%;
+        }
+        .yas--password-meter.yas--strength-1 {
+          background-color: #ff0000;
+          margin-right: 75%;
+        }
+        .yas--password-meter.yas--strength-2 {
+          background-color: #ffa500;
+          margin-right: 50%;
+        }
+        .yas--password-meter.yas--strength-3 {
+          background-color: #008000;
+          margin-right: 25%;
+        }
+        .yas--password-meter.yas--strength-4 {
+          background-color: #008000;
+          margin-right: 0%;
+        }
+       }
+       .yas--password-suggestions ul {
+         margin-left: 2em;
+         margin-bottom: 0;
+         list-style: disc;
+         font-size: 90%;
+       }
+    |]
+  toWidget
+    [julius|
+      var yas__extraWordsEl = document.getElementById("yas__extra-words");
+      var yas__extraWords = [];
+      if (yas__extraWordsEl) {
+        var str = yas__extraWordsEl.getAttribute("data-extra-words");
+        if (Boolean(str)) { yas__extraWords = str.split(" "); }
+      }
+
+      var yas__passwordFeedback = document.getElementById("yas--password-feedback");
+      var yas__passwordMeter = yas__passwordFeedback.querySelector(".yas--password-meter");
+      var yas__passwordErrors = yas__passwordFeedback.querySelector(".yas--password-errors");
+
+      function yas_showError() {
+        var warningEl = yas__passwordErrors.querySelector(".yas--password-warning");
+        warningEl.appendChild(document.createTextNode("Error requesting password strength"));
+      }
+
+      function yas_updateFeedback (password, strength) {
+        var gotScore = typeof strength.score === "number";
+        var score, feedback, jsResult;
+        if (!gotScore || strength.score <= 2 || strength.score < #{toJSON $ fromEnum minStren}) {
+          jsResult = zxcvbn(password, yas__extraWords);
+          feedback = jsResult.feedback;
+        }
+
+        if (gotScore) { score = strength.score; }
+        else {          score = jsResult.score; }
+
+        yas__passwordMeter.classList.add("yas--strength-" + score);
+        yas__passwordMeter.classList.remove("yas--strength-init");
+        for (var i=0; i<5; i++) {
+          if (i !== score) {
+            yas__passwordMeter.classList.remove("yas--strength-" + i);
+          }
+        }
+
+        var warningEl = yas__passwordErrors.querySelector(".yas--password-warning");
+        while (warningEl.firstChild) { warningEl.removeChild(warningEl.firstChild); }
+
+        var tips = yas__passwordErrors.querySelector(".yas--password-suggestions");
+        while (tips && tips.firstChild) { tips.removeChild(tips.firstChild); }
+
+        if (Boolean(password) && score < #{toJSON $ fromEnum minStren}) {
+          var warning = "The password is not strong enough";
+          if (Boolean(feedback.warning)) {
+            warning = warning + ". " + feedback.warning;
+          }
+          warningEl.appendChild(document.createTextNode(warning));
+
+          if (feedback.suggestions.length > 0) {
+            var suggestionList = document.createElement("ul");
+            for (var i=0; i<feedback.suggestions.length; i++) {
+              var li = document.createElement("li");
+              var txt = document.createTextNode(feedback.suggestions[i]);
+              li.classList.add("yas--suggestion");
+              li.appendChild(txt);
+              suggestionList.appendChild(li);
+            }
+            tips.appendChild(suggestionList);
+          }
+        }
+      }
+
+      var yas_currentReq = 0;
+      function yas_getPasswordStrength(password) {
+        var req = new XMLHttpRequest();
+        var reqNum = yas_currentReq + 1;
+        req.onreadystatechange = function(resp) {
+          if (req.readyState === XMLHttpRequest.DONE) {
+            if (req.status === 200) {
+              var resp = JSON.parse(req.responseText);
+              if (reqNum <= yas_currentReq) {
+                yas_updateFeedback(password, resp);
+              }
+            } else {
+              yas_updateFeedback("", #{toJSON blankPasswordScore});
+              yas_showError();
+            }
+          }
+        };
+        req.open("POST", "@{toParent passwordStrengthR}", true);
+        req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        req.send("password=" + encodeURIComponent(password));
+        yas_currentReq += 1;
+      }
+
+      function yas_debounce(delay, fn) {
+        var timeout;
+        return function () {
+          if (timeout) { clearTimeout(timeout); }
+          timeout = setTimeout(fn.apply.bind(fn, this, arguments), delay);
+        };
+      }
+
+      var yas_getPasswordStrengthDeb = yas_debounce(200, yas_getPasswordStrength);
+
+      function yas_onPasswordChange(e) {
+        if (Boolean(e.target.value) && e.target.value.length < #{toJSON maxPasswordLength}) {
+            yas_getPasswordStrengthDeb(e.target.value);
+        } else if (!Boolean(e.target.value)) {
+          yas_updateFeedback("", #{toJSON blankPasswordScore});
+        }
+      }
+
+      document.getElementById("password").addEventListener("input", yas_onPasswordChange);
+    |]
+
+setPasswordTemplateDef :: forall a. YesodAuthSimple a => (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
+setPasswordTemplateDef toParent url mErr =
+  let pwField = passwordFieldTemplate @a toParent in
+    [whamlet|
+      $newline never
+      $maybe err <- mErr
+        <div class="alert">#{err}
+
+      <h1>Set new password
+      <form method="post" action="@{url}">
+        ^{pwField}
+        <button type="submit">Save
+    |]
 
 invalidTokenTemplateDef :: Text -> WidgetFor a ()
 invalidTokenTemplateDef msg = [whamlet|
@@ -673,21 +889,21 @@ confirmationEmailSentTemplateDef = [whamlet|
       Click on the link in the email to complete the registration.
 |]
 
-confirmTempateDef :: Route a -> Email -> Maybe Text -> WidgetFor a ()
-confirmTempateDef confirmUrl (Email email) mErr = [whamlet|
-  $newline never
-  $maybe err <- mErr
-    <div class="alert">#{err}
+confirmTempateDef :: forall a. YesodAuthSimple a => (AuthRoute -> Route a) -> Route a -> Email -> Maybe Text -> WidgetFor a ()
+confirmTempateDef toParent confirmUrl (Email email) mErr =
+  let pwField = passwordFieldTemplate @a toParent in
+  [whamlet|
+    $newline never
+    $maybe err <- mErr
+      <div class="alert">#{err}
 
-  <.confirm>
-    <h1>Set Your Password
-    <form method="post" action="@{confirmUrl}">
-      <p>#{email}
-      <fieldset>
-        <label for="password">Password
-        <input#password type="password" name="password" required autofocus>
-      <button type="submit">Set Password
-|]
+    <.confirm>
+      <h1>Set Your Password
+      <form method="post" action="@{confirmUrl}">
+        <p>#{email}
+        ^{pwField}
+        <button type="submit">Set Password
+  |]
 
 resetPasswordTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
 resetPasswordTemplateDef toParent mErr = [whamlet|

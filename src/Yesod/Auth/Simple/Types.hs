@@ -1,10 +1,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE DeriveGeneric              #-}
 
 module Yesod.Auth.Simple.Types where
 
 import           ClassyPrelude
 import           Data.Aeson
+import           GHC.Generics           (Generic)
 import           Database.Persist.Sql   (PersistField, PersistFieldSql,
                                          PersistValue (PersistText),
                                          SqlType (SqlString), fromPersistValue,
@@ -20,6 +22,15 @@ newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
 data PasswordCheck = RuleBased { minChars :: Int }
                    | Zxcvbn { minStrength :: PW.Strength
                             , extraWords  :: Vector Text }
+
+data PasswordStrength = PasswordStrength
+                        { isAcceptable :: Bool
+                        , strength :: PW.Strength
+                        } deriving (Generic)
+
+instance ToJSON PasswordStrength where
+  toJSON (PasswordStrength acc str) =
+    object ["isAcceptable" .= acc, "score" .= fromEnum str]
 
 instance FromJSON PasswordReq where
   parseJSON = withObject "req" $ \o -> do
@@ -55,4 +66,3 @@ instance PersistField Password where
   fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
 
 type VerUrl = Text
-
