@@ -3,7 +3,9 @@
 
 module Yesod.Auth.SimpleSpec (spec) where
 
+import qualified Data.Text  as T
 import           TestImport
+
 
 spec :: Spec
 spec = withApp $ do
@@ -57,6 +59,23 @@ spec = withApp $ do
           -- NB: The following password would be fine without the
           -- commonDomainWords definition
           byLabelExact "Password" "hello yesod 123"
+        r <- followRedirect
+        assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
+
+    describe "with a password that is too long" $ do
+      it "caps length at 150" $ do
+        let email = "user@example.com"
+            -- Not using a simple, eg, "a" replicate because that
+            -- causes a bug hopefully soon fixed:
+            -- github.com/sthenauth/zxcvbn-hs/issues/2
+            password = T.replicate 12 "one two three" -- 156 chars
+        ur <- runHandler getUrlRender
+        t <- liftIO $ encryptRegisterToken (Email email)
+        get $ AuthR $ confirmR t
+        request $ do
+          setMethod "POST"
+          setUrl $ AuthR $ confirmR t
+          byLabelExact "Password" password
         r <- followRedirect
         assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
 

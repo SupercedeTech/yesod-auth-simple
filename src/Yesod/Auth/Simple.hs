@@ -329,7 +329,8 @@ postConfirmR token = do
 
 createUser :: forall m. YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
 createUser token email password = do
-  check <- liftIO $ checkPasswordStrength (passwordCheck @m) password
+  check <- liftIO $ strengthToEither
+          <$> checkPasswordStrength (passwordCheck @m) password
   case check of
     Left msg -> do
       setError msg
@@ -369,43 +370,46 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
 
 postPasswordStrengthR :: forall a. (YesodAuthSimple a) => AuthHandler a J.Value
 postPasswordStrengthR = do
-  today <- utctDay <$> liftIO getCurrentTime
   password <- runInputPost (ireq textField "password")
   let pass = Pass . encodeUtf8 $ password
-  J.returnJson $ case passwordCheck @a of
-    Zxcvbn minStren extraWs -> checkPassWithZxcvbn minStren extraWs today pass
-    RuleBased minLen -> case checkPassWithRules minLen pass of
-      Left _ -> PasswordStrength False PW.Weak
-      Right _ -> PasswordStrength True PW.Safe
+  liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
 
-checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Pass -> PasswordStrength
-checkPassWithZxcvbn minStrength' extraWords' day pass =
-  case decodeUtf8' (getPass pass) of
-    Left _ -> PasswordStrength False PW.Risky
-    Right password ->
-      let conf = PW.addCustomFrequencyList extraWords' PW.en_US
-          guesses = PW.score conf day password
-          stren = PW.strength guesses
-      in PasswordStrength (stren >= minStrength') stren
+checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Text -> PasswordStrength
+checkPassWithZxcvbn minStrength' extraWords' day password =
+  let conf = PW.addCustomFrequencyList extraWords' PW.en_US
+      guesses = PW.score conf day password
+      stren = PW.strength guesses
+  in if stren >= minStrength' then GoodPassword stren
+     else BadPassword stren $ Just "The password is not strong enough"
 
-strengthToEither :: PasswordStrength -> Either Text ()
-strengthToEither (PasswordStrength True _) = Right ()
-strengthToEither (PasswordStrength False _) =
+checkPassWithRules :: Int -> Pass -> PasswordStrength
+checkPassWithRules minLen pass
+  | BS.length (getPass pass) >= minLen = GoodPassword PW.Safe
+  | otherwise = BadPassword PW.Weak . Just . T.pack
+                $ "Password must be at least " <> show minLen <> " characters"
+
+strengthToEither :: PasswordStrength -> Either Text PW.Strength
+strengthToEither (GoodPassword stren) = Right stren
+strengthToEither (BadPassword _ (Just err)) = Left err
+strengthToEither (BadPassword _ Nothing) =
   Left "The password is not strong enough"
 
-checkPassWithRules :: Int -> Pass -> Either Text ()
-checkPassWithRules minLen pass
-  | BS.length (getPass pass) >= minLen = Right ()
-  | otherwise = Left . T.pack $ "Password must be at least "
-                <> show minLen <> " characters"
-
-checkPasswordStrength :: PasswordCheck -> Pass -> IO (Either Text ())
-checkPasswordStrength (RuleBased minLen) pass =
-  pure $ checkPassWithRules minLen pass
-checkPasswordStrength (Zxcvbn minStrength' extraWords') pass = do
-  today <- utctDay <$> getCurrentTime
-  pure . strengthToEither $
-    checkPassWithZxcvbn minStrength' extraWords' today pass
+checkPasswordStrength :: PasswordCheck -> Pass -> IO PasswordStrength
+checkPasswordStrength check pass =
+  case decodeUtf8' (getPass pass) of
+    Left _  -> pure $ BadPassword PW.Weak $ Just "Invalid characters in password"
+    Right password ->
+      if not withinBounds
+      then pure . BadPassword PW.Weak . Just
+           $ "Password exceeds maximum length of "
+           <> T.pack (show maxPasswordLength)
+      else case check of
+        RuleBased minLen -> pure $ checkPassWithRules minLen pass
+        Zxcvbn minStrength' extraWords' -> do
+          today <- utctDay <$> getCurrentTime
+          pure $ checkPassWithZxcvbn minStrength' extraWords' today password
+      where (_, extra) = T.splitAt maxPasswordLength password
+            withinBounds = T.null extra
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
@@ -497,7 +501,8 @@ putSetPasswordR = do
 
 setPassword :: forall a. YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
 setPassword uid password = do
-  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
+  check <- liftIO $ strengthToEither
+          <$> checkPasswordStrength (passwordCheck @a) password
   case check of
     Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
     Right _  -> do
@@ -513,7 +518,8 @@ setPassToken
   -> Pass
   -> AuthHandler a TypedContent
 setPassToken token uid password = do
-  check <- liftIO $ checkPasswordStrength (passwordCheck @a) password
+  check <- liftIO $ strengthToEither
+          <$> checkPasswordStrength (passwordCheck @a) password
   case check of
     Left msg -> do
       setError msg
@@ -668,7 +674,7 @@ zxcvbnJsUrl = "https://cdn.jsdelivr.net/npm/zxcvbn@4.4.2/dist/zxcvbn.js"
 passwordFieldTemplateZxcvbn :: (AuthRoute -> Route a) -> PW.Strength -> Vector Text -> WidgetFor a ()
 passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
   let extraWordsStr = T.unwords . toList $ extraWords'
-      blankPasswordScore = PasswordStrength False PW.Risky
+      blankPasswordScore = BadPassword PW.Risky Nothing
   addScriptRemote zxcvbnJsUrl
   toWidget
     [hamlet|
