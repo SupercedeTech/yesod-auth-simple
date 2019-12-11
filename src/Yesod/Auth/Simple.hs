@@ -793,7 +793,12 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
         while (tips && tips.firstChild) { tips.removeChild(tips.firstChild); }
 
         if (Boolean(password) && score < #{toJSON $ fromEnum minStren}) {
-          var warning = "The password is not strong enough";
+          var warning;
+          if (Boolean(strength.error)) {
+            warning = strength.error;
+          } else {
+            warning = "The password is not strong enough";
+          }
           if (Boolean(feedback.warning)) {
             warning = warning + ". " + feedback.warning;
           }
