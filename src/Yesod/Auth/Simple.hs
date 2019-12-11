@@ -87,6 +87,9 @@ import           Yesod.Core
 import           Yesod.Core.Json               as J
 import           Yesod.Form                    (ireq, runInputPost, textField)
 
+minPasswordLength :: Int
+minPasswordLength = 8 -- min length required in NIST SP 800-63B
+
 maxPasswordLength :: Int
 maxPasswordLength = 150 -- zxcvbn takes too long after this point
 
@@ -394,22 +397,38 @@ strengthToEither (BadPassword _ (Just err)) = Left err
 strengthToEither (BadPassword _ Nothing) =
   Left "The password is not strong enough"
 
+getPWStrength :: PasswordStrength -> PW.Strength
+getPWStrength (GoodPassword stren)  = stren
+getPWStrength (BadPassword stren _) = stren
+
 checkPasswordStrength :: PasswordCheck -> Pass -> IO PasswordStrength
 checkPasswordStrength check pass =
   case decodeUtf8' (getPass pass) of
     Left _  -> pure $ BadPassword PW.Weak $ Just "Invalid characters in password"
     Right password ->
-      if not withinBounds
+      if not satisfiesMaxLen
       then pure . BadPassword PW.Weak . Just
            $ "Password exceeds maximum length of "
            <> T.pack (show maxPasswordLength)
       else case check of
-        RuleBased minLen -> pure $ checkPassWithRules minLen pass
-        Zxcvbn minStrength' extraWords' -> do
+        RuleBased minLen ->
+          pure $ checkPassWithRules (max minLen minPasswordLength) pass
+        Zxcvbn minStren extraWords' -> do
           today <- utctDay <$> getCurrentTime
-          pure $ checkPassWithZxcvbn minStrength' extraWords' today password
-      where (_, extra) = T.splitAt maxPasswordLength password
-            withinBounds = T.null extra
+          let pwstren = checkPassWithZxcvbn minStren extraWords' today password
+          pure $
+            if satisfiesMinLen
+            then pwstren
+            -- Although we always prevent passwords below the minimum
+            -- length, we do not score it as Weak invariably. This
+            -- prevents the password meter from sticking at the lowest
+            -- level until after you input a safe password of min length
+            else BadPassword (min (getPWStrength pwstren) (pred minStren))
+                 . Just $ "The password must be at least "
+                 <> T.pack (show minPasswordLength) <> " characters"
+      where (boundedPw, extra) = T.splitAt maxPasswordLength password
+            satisfiesMinLen = T.length boundedPw >= minPasswordLength
+            satisfiesMaxLen = T.null extra
 
 normalizeEmail :: Text -> Text
 normalizeEmail = T.toLower
