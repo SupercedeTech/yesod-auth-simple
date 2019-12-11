@@ -61,7 +61,6 @@ import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
                                                 encryptPassIO', verifyPass')
 import           Data.Aeson
 import           Data.ByteString               (ByteString)
-import qualified Data.ByteString               as BS
 import qualified Data.ByteString.Base64        as B64
 import qualified Data.ByteString.Base64.URL    as B64Url
 import           Data.Function                 ((&))
@@ -385,9 +384,9 @@ checkPassWithZxcvbn minStrength' extraWords' day password =
   in if stren >= minStrength' then GoodPassword stren
      else BadPassword stren $ Just "The password is not strong enough"
 
-checkPassWithRules :: Int -> Pass -> PasswordStrength
-checkPassWithRules minLen pass
-  | BS.length (getPass pass) >= minLen = GoodPassword PW.Safe
+checkPassWithRules :: Int -> Text -> PasswordStrength
+checkPassWithRules minLen password
+  | T.length password >= minLen = GoodPassword PW.Safe
   | otherwise = BadPassword PW.Weak . Just . T.pack
                 $ "Password must be at least " <> show minLen <> " characters"
 
@@ -412,7 +411,7 @@ checkPasswordStrength check pass =
            <> T.pack (show maxPasswordLength)
       else case check of
         RuleBased minLen ->
-          pure $ checkPassWithRules (max minLen minPasswordLength) pass
+          pure $ checkPassWithRules (max minLen minPasswordLength) password
         Zxcvbn minStren extraWords' -> do
           today <- utctDay <$> getCurrentTime
           let pwstren = checkPassWithZxcvbn minStren extraWords' today password
