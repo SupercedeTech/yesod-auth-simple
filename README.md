@@ -64,6 +64,12 @@ This library will send POST requests containing the user's password (including a
 
 Please also beware of logging the HTTP `Referrer` header and confirmation/reset URLs themselves, which at certain points will include the account confirmation or password reset token.
 
+### NIST compliance
+
+The library aims to support applications seeking [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html) AAL1 compliance (we may also add 2FA in the future and thus support applications seeking AAL2). To the best of our understanding, the library provides a [compliant](https://pages.nist.gov/800-63-3/sp800-63b.html#sec5) "memorized secret authenticator" *except* for rate-limiting (a TODO). The library cannot claim compliance with the guidelines overall (at a particular AAL) because the library does not handle everything covered there (for example, session management), and some template and route customisation could always override our compliant defaults.
+
+Note that scrypt [uses](https://tools.ietf.org/html/rfc7914#page-7) HMAC-SHA256 and so is compliant with NIST's hashing requirements.
+
 ## More pleasing authentication URLs
 
 By default, all route URLs from this library are quite verbose: `/auth/page/simple/<login|register|..>`. If you would like short URLs (e.g. `/login`), then you should:
