@@ -319,13 +319,17 @@ confirmHandler registerUrl email = do
 postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postConfirmR token = do
   clearError
-  password <- runInputPost $ ireq textField "password"
-  res  <- liftIO $ verifyRegisterToken token
-  case res of
-    Left msg ->
-      invalidTokenHandler msg
-    Right email ->
-      createUser token email (Pass . encodeUtf8 $ password)
+  okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
+  if not okCsrf
+    then invalidTokenHandler invalidCsrfMessage
+    else do
+      password <- runInputPost $ ireq textField "password"
+      res  <- liftIO $ verifyRegisterToken token
+      case res of
+        Left msg ->
+          invalidTokenHandler msg
+        Right email ->
+          createUser token email (Pass . encodeUtf8 $ password)
 
 createUser :: forall m. YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
 createUser token email password = do
@@ -370,9 +374,13 @@ getUserExistsR = selectRep . provideRep . authLayout $ do
 
 postPasswordStrengthR :: forall a. (YesodAuthSimple a) => AuthHandler a J.Value
 postPasswordStrengthR = do
-  password <- runInputPost (ireq textField "password")
-  let pass = Pass . encodeUtf8 $ password
-  liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
+  okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
+  if not okCsrf
+    then pure . toJSON $ BadPassword PW.Risky $ Just invalidCsrfMessage
+    else do
+      password <- runInputPost (ireq textField "password")
+      let pass = Pass . encodeUtf8 $ password
+      liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
 
 checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Text -> PasswordStrength
 checkPassWithZxcvbn minStrength' extraWords' day password =
@@ -451,18 +459,25 @@ clearError = deleteSession "error"
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
-  (email, password') <- runInputPost $ (,)
-    <$> ireq textField "email"
-    <*> ireq textField "password"
-  let password = Pass . encodeUtf8 $ password'
-  mUid <- getUserId (Email email)
-  case mUid of
-    Just uid -> do
-      storedPassword <- getUserPassword uid
-      if verifyPass' password storedPassword
-      then setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-      else wrongEmailOrPasswordRedirect
-    _ -> wrongEmailOrPasswordRedirect
+  okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
+  if not okCsrf
+    then do
+      setError invalidCsrfMessage
+      tp <- getRouteToParent
+      redirect $ tp loginR
+    else do
+      (email, password') <- runInputPost $ (,)
+        <$> ireq textField "email"
+        <*> ireq textField "password"
+      let password = Pass . encodeUtf8 $ password'
+      mUid <- getUserId (Email email)
+      case mUid of
+        Just uid -> do
+          storedPassword <- getUserPassword uid
+          if verifyPass' password storedPassword
+          then setCredsRedirect $ Creds "simple" (toPathPiece uid) []
+          else wrongEmailOrPasswordRedirect
+        _ -> wrongEmailOrPasswordRedirect
 
 wrongEmailOrPasswordRedirect :: AuthHandler a TypedContent
 wrongEmailOrPasswordRedirect = do
@@ -497,15 +512,20 @@ getSetPasswordTokenR token = do
         setTitle "Set password"
         setPasswordTemplate tp (tp $ setPasswordTokenR token) mErr
 
+invalidCsrfMessage :: Text
+invalidCsrfMessage = "Invalid anti-forgery token. Please try again in a new browser tab or window. Contact support if the problem persists"
+
 -- | Set a new password for the user
 postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 postSetPasswordTokenR token = do
   clearError
-  password <- runInputPost $ ireq textField "password"
-  res  <- verifyPasswordResetToken token
-  case res of
-    Left msg  -> invalidTokenHandler msg
-    Right uid -> setPassToken token uid (Pass . encodeUtf8 $ password)
+  okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
+  if not okCsrf then invalidTokenHandler invalidCsrfMessage else do
+    password <- runInputPost $ ireq textField "password"
+    res  <- verifyPasswordResetToken token
+    case res of
+      Left msg  -> invalidTokenHandler msg
+      Right uid -> setPassToken token uid (Pass . encodeUtf8 $ password)
 
 putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
 putSetPasswordR = do
@@ -655,6 +675,15 @@ redirectTemplate destUrl = do
   toWidget
     [julius|window.location = "@{destUrl}";|]
 
+csrfTokenTemplate :: WidgetFor a ()
+csrfTokenTemplate = do
+  request <- getRequest
+  [whamlet|
+    $newline never
+    $maybe antiCsrfToken <- reqToken request
+      <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
+  |]
+
 loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
 loginTemplateDef toParent mErr = [whamlet|
   $newline never
@@ -663,6 +692,7 @@ loginTemplateDef toParent mErr = [whamlet|
 
   <h1>Sign in
   <form method="post" action="@{toParent loginR}">
+    ^{csrfTokenTemplate}
     <fieldset>
       <label for="email">Email
       <input type="email" name="email" autofocus required>
@@ -691,6 +721,8 @@ passwordFieldTemplateZxcvbn :: (AuthRoute -> Route a) -> PW.Strength -> Vector T
 passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
   let extraWordsStr = T.unwords . toList $ extraWords'
       blankPasswordScore = BadPassword PW.Risky Nothing
+  mCsrfToken <- reqToken <$> getRequest
+  let csrfToken = maybe "no-csrf-token" id mCsrfToken
   addScriptRemote zxcvbnJsUrl
   toWidget
     [hamlet|
@@ -835,7 +867,8 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
         };
         req.open("POST", "@{toParent passwordStrengthR}", true);
         req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-        req.send("password=" + encodeURIComponent(password));
+        req.send(#{defaultCsrfParamName} + "=" + #{csrfToken}
+                 + "&password=" + encodeURIComponent(password));
         yas_currentReq += 1;
       }
 
@@ -870,6 +903,7 @@ setPasswordTemplateDef toParent url mErr =
 
       <h1>Set new password
       <form method="post" action="@{url}">
+        ^{csrfTokenTemplate}
         ^{pwField}
         <button type="submit">Save
     |]
@@ -927,6 +961,7 @@ confirmTempateDef toParent confirmUrl (Email email) mErr =
     <.confirm>
       <h1>Set Your Password
       <form method="post" action="@{confirmUrl}">
+        ^{csrfTokenTemplate}
         <p>#{email}
         ^{pwField}
         <button type="submit">Set Password
