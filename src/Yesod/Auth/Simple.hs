@@ -271,19 +271,17 @@ postResetPasswordR = do
   clearError
   email <- runInputPost $ ireq textField "email"
   mUid  <- getUserId $ Email $ normalizeEmail email
+  tp <- getRouteToParent
   case mUid of
     Just uid -> do
       modified <- getUserModified uid
       token <- encryptPasswordResetToken uid modified
-      tp <- getRouteToParent
       renderUrl <- getUrlRender
       let url = renderUrl $ tp $ setPasswordTokenR token
       sendResetPasswordEmail (Email email) url
       redirect $ tp resetPasswordEmailSentR
     Nothing -> do
-      setError "Email not found"
-      tp <- getRouteToParent
-      redirect $ tp resetPasswordR
+      redirect $ tp resetPasswordEmailSentR
 
 getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 getConfirmR token =
@@ -904,7 +902,7 @@ resetPasswordEmailSentTemplateDef = [whamlet|
   $newline never
   <.password-reset-email-sent>
     <h1>Email Sent!
-    <p>An email has been sent to your address.
+    <p>An email has been sent to your address provided that a corresponding user account exists in our system.
     <p>Click on the link in the email to complete the password reset.
 |]
 
