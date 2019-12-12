@@ -54,6 +54,7 @@ spec = withApp $ do
         t <- liftIO $ encryptRegisterToken (Email email)
         get $ AuthR $ confirmR t
         request $ do
+          addToken
           setMethod "POST"
           setUrl $ AuthR $ confirmR t
           -- NB: The following password would be fine without the
@@ -73,6 +74,7 @@ spec = withApp $ do
         t <- liftIO $ encryptRegisterToken (Email email)
         get $ AuthR $ confirmR t
         request $ do
+          addToken
           setMethod "POST"
           setUrl $ AuthR $ confirmR t
           byLabelExact "Password" password

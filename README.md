@@ -54,6 +54,15 @@ instance YesodAuthSimple App where
 
 The rest of the typeclass consists of various Yesod [widget](https://www.yesodweb.com/book/widgets) [templates](https://www.yesodweb.com/book/shakespearean-templates) with default implementations. Override any as you see fit. The default templates are exported at the module's top level, so you can use them inside your own larger container widgets.
 
+All customised templates with password form inputs must include, in the form's POST body, an anti-CSRF token using `Yesod.Core.Handler.defaultCsrfParamName` with the value retrieved from `Yesod.Core.Handler.reqToken`. A common template idiom is the following:
+
+```
+<form>
+  $maybe antiCsrfToken <- reqToken request
+    <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
+  ... rest of form
+```
+
 Full details on the class functions can be found in the Hackage docs. An example of writing an instance for testing purposes can be found [here](https://github.com/riskbook/yesod-auth-simple/blob/master/test/ExampleApp.hs).
 
 ## Security notes
