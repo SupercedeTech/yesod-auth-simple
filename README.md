@@ -67,8 +67,6 @@ Full details on the class functions can be found in the Hackage docs. An example
 
 ## Security notes
 
-This libary is not yet on Hackage and some aspects are still missing, in particular: CSRF protection. Check the [issues](https://github.com/riskbook/yesod-auth-simple/issues) before using.
-
 This library will send POST requests containing the user's password (including as they type it via an XHR when you choose to use the Zxcvbn strength algorithm). It is therefore **vital** that you do not log the request bodies of these routes to avoid storing passwords in plaintext logs on your server. Sensitive routes are currently: loginR, setPasswordR, confirmR, and passwordStrengthR. We are investigating ways to improve developer experience here.
 
 Please also beware of logging the HTTP `Referrer` header and confirmation/reset URLs themselves, which at certain points will include the account confirmation or password reset token.
