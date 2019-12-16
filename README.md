@@ -73,7 +73,9 @@ Please also beware of logging the HTTP `Referrer` header and confirmation/reset 
 
 ### NIST compliance
 
-The library aims to support applications seeking [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html) AAL1 compliance (we may also add 2FA in the future and thus support applications seeking AAL2). To the best of our understanding, the library provides a [compliant](https://pages.nist.gov/800-63-3/sp800-63b.html#sec5) "memorized secret authenticator" *except* for rate-limiting (a TODO). The library cannot claim compliance with the guidelines overall (at a particular AAL) because the library does not handle everything covered there (for example, session management), and some template and route customisation could always override our compliant defaults.
+The library aims to (but does not yet) support applications seeking [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html) AAL1 compliance. To the best of our understanding, the library provides a [compliant](https://pages.nist.gov/800-63-3/sp800-63b.html#sec5) "memorized secret authenticator" *except* for rate-limiting (a TODO).
+
+The library cannot claim compliance with the guidelines overall (at a particular AAL) because: 1) the library does not handle everything covered there (for example, session management), 2) some template and route customisation could always override our compliant defaults, and 3) the password reset functionality is not compliant; in NIST terminology it is considered an "out of band authenticator" and the guidelines specifically prohibit the use of email for this.
 
 Note that scrypt [uses](https://tools.ietf.org/html/rfc7914#page-7) HMAC-SHA256 and so is compliant with NIST's hashing requirements.
 
