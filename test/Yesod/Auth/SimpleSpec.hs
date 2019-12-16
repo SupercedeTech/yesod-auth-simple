@@ -52,16 +52,17 @@ spec = withApp $ do
         let email = "user@example.com"
         ur <- runHandler getUrlRender
         t <- liftIO $ encryptRegisterToken (Email email)
-        get $ AuthR $ confirmR t
+        get $ AuthR $ confirmTokenR t
+        _ <- followRedirect
         request $ do
           addToken
           setMethod "POST"
-          setUrl $ AuthR $ confirmR t
+          setUrl $ AuthR confirmR
           -- NB: The following password would be fine without the
           -- commonDomainWords definition
           byLabelExact "Password" "hello yesod 123"
         r <- followRedirect
-        assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
+        assertEq "path is confirmation form" (Right (ur (AuthR confirmR))) r
 
     describe "with a password that is too long" $ do
       it "caps length at 150" $ do
@@ -72,14 +73,15 @@ spec = withApp $ do
             password = T.replicate 12 "one two three" -- 156 chars
         ur <- runHandler getUrlRender
         t <- liftIO $ encryptRegisterToken (Email email)
-        get $ AuthR $ confirmR t
+        get $ AuthR $ confirmTokenR t
+        _ <- followRedirect
         request $ do
           addToken
           setMethod "POST"
-          setUrl $ AuthR $ confirmR t
+          setUrl $ AuthR $ confirmR
           byLabelExact "Password" password
         r <- followRedirect
-        assertEq "path is confirmation form" (Right (ur (AuthR (confirmR t)))) r
+        assertEq "path is confirmation form" (Right (ur (AuthR confirmR))) r
 
     describe "with an adequately strong password" $
 
@@ -92,13 +94,14 @@ spec = withApp $ do
           setUrl $ AuthR registerR
           byLabelExact "Email" email
         token <- liftIO $ encryptRegisterToken (Email email)
-        get $ AuthR $ confirmR token
+        get $ AuthR $ confirmTokenR token
+        _ <- followRedirect
         request $ do
           setMethod "POST"
-          setUrl $ AuthR $ confirmR token
+          setUrl $ AuthR $ confirmR
           byLabelExact "Password" "really difficult yesod password here"
         r <- followRedirect
-        assertNotEq "path is not confirmation form" (Right (ur (AuthR (confirmR token)))) r
+        assertNotEq "path is not confirmation form" (Right (ur (AuthR confirmR))) r
 
     describe "with an invalid token" $
 
@@ -109,7 +112,8 @@ spec = withApp $ do
           setMethod "POST"
           setUrl $ AuthR registerR
           byLabelExact "Email" "user@example.com"
-        get $ AuthR $ confirmR token
+        get $ AuthR $ confirmTokenR token
+        _ <- followRedirect
         statusIs 400
 
     describe "with an email that is not unique" $
@@ -121,7 +125,8 @@ spec = withApp $ do
         runDB' . insert_ $ User{..}
 
         token <- liftIO $ encryptRegisterToken userEmail
-        get $ AuthR $ confirmR token
+        get $ AuthR $ confirmTokenR token
+        _ <- followRedirect
         statusIs 303
         r <- followRedirect
         ur <- runHandler getUrlRender
