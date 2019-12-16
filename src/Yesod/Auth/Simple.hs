@@ -20,7 +20,6 @@ module Yesod.Auth.Simple
     -- * Routes
   , loginR
   , registerR
-  , setPasswordR
   , resetPasswordR
   , resetPasswordEmailSentR
   , setPasswordTokenR
@@ -64,7 +63,6 @@ import           Data.ByteString               (ByteString)
 import qualified Data.ByteString.Base64        as B64
 import qualified Data.ByteString.Base64.URL    as B64Url
 import           Data.Function                 ((&))
-import           Data.Maybe                    (fromJust)
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With)
@@ -112,9 +110,6 @@ resetPasswordEmailSentR = PluginR "simple" ["reset-password-email-sent"]
 
 resetPasswordR :: AuthRoute
 resetPasswordR = PluginR "simple" ["reset-password"]
-
-setPasswordR :: AuthRoute
-setPasswordR = PluginR "simple" ["set-password"]
 
 setPasswordTokenR :: Text -> AuthRoute
 setPasswordTokenR token = PluginR "simple" ["set-password", token]
@@ -206,8 +201,6 @@ dispatch "GET"  ["register-success"] = getRegisterSuccessR >>= sendResponse
 dispatch "GET"  ["user-exists"] = getUserExistsR >>= sendResponse
 dispatch "GET"  ["login"] = getLoginR >>= sendResponse
 dispatch "POST" ["login"] = postLoginR >>= sendResponse
-dispatch "GET"  ["set-password"] = getSetPasswordR >>= sendResponse
-dispatch "PUT"  ["set-password"] = putSetPasswordR >>= sendResponse
 dispatch "GET"  ["set-password", token] = getSetPasswordTokenR token >>= sendResponse
 dispatch "POST" ["set-password", token] = postSetPasswordTokenR token >>= sendResponse
 dispatch "GET"  ["reset-password"] = getResetPasswordR >>= sendResponse
@@ -485,21 +478,6 @@ wrongEmailOrPasswordRedirect = do
   tp <- getRouteToParent
   redirect $ tp loginR
 
-toSimpleAuthId :: forall c a. (PathPiece c, PathPiece a) => a -> c
-toSimpleAuthId = fromJust . fromPathPiece . toPathPiece
-
-getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
-getSetPasswordR = do
-  mUid <- maybeAuthId
-  tp <- getRouteToParent
-  case mUid of
-    Just _ -> do
-      mErr <- getError
-      selectRep . provideRep . authLayout $ do
-        setTitle "Set password"
-        setPasswordTemplate tp (tp setPasswordR) mErr
-    Nothing -> redirect $ tp loginR
-
 getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 getSetPasswordTokenR token = do
   res <- verifyPasswordResetToken token
@@ -526,26 +504,6 @@ postSetPasswordTokenR token = do
     case res of
       Left msg  -> invalidTokenHandler msg
       Right uid -> setPassToken token uid (Pass . encodeUtf8 $ password)
-
-putSetPasswordR :: YesodAuthSimple a => AuthHandler a Value
-putSetPasswordR = do
-  clearError
-  uid <- toSimpleAuthId <$> requireAuthId
-  req <- requireCheckJsonBody :: (AuthHandler m) PasswordReq
-  let password = Pass . encodeUtf8 $ unPasswordReq req
-  setPassword uid password
-
-setPassword :: forall a. YesodAuthSimple a => AuthSimpleId a -> Pass -> AuthHandler a Value
-setPassword uid password = do
-  check <- liftIO $ strengthToEither
-          <$> checkPasswordStrength (passwordCheck @a) password
-  case check of
-    Left msg -> sendResponseStatus badRequest400 $ object [ "message" .= msg ]
-    Right _  -> do
-      encrypted <- liftIO $ encryptPassIO' password
-      _         <- updateUserPassword uid encrypted
-      onPasswordUpdated
-      return $ object []
 
 setPassToken
   :: forall a. YesodAuthSimple a
