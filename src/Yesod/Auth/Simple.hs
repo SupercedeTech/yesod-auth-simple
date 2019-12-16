@@ -23,6 +23,7 @@ module Yesod.Auth.Simple
   , resetPasswordR
   , resetPasswordEmailSentR
   , setPasswordTokenR
+  , confirmTokenR
   , confirmR
   , userExistsR
   , registerSuccessR
@@ -90,8 +91,11 @@ minPasswordLength = 8 -- min length required in NIST SP 800-63B
 maxPasswordLength :: Int
 maxPasswordLength = 150 -- zxcvbn takes too long after this point
 
-confirmR :: Text -> AuthRoute
-confirmR token = PluginR "simple" ["confirm", token]
+confirmTokenR :: Text -> AuthRoute
+confirmTokenR token = PluginR "simple" ["confirm", token]
+
+confirmR :: AuthRoute
+confirmR = PluginR "simple" ["confirm"]
 
 confirmationEmailSentR :: AuthRoute
 confirmationEmailSentR = PluginR "simple" ["confirmation-email-sent"]
@@ -110,6 +114,9 @@ resetPasswordEmailSentR = PluginR "simple" ["reset-password-email-sent"]
 
 resetPasswordR :: AuthRoute
 resetPasswordR = PluginR "simple" ["reset-password"]
+
+setPasswordR :: AuthRoute
+setPasswordR = PluginR "simple" ["set-password"]
 
 setPasswordTokenR :: Text -> AuthRoute
 setPasswordTokenR token = PluginR "simple" ["set-password", token]
@@ -194,15 +201,17 @@ loginHandlerRedirect tm = redirectTemplate $ tm loginR
 dispatch :: YesodAuthSimple a => Text -> [Text] -> AuthHandler a TypedContent
 dispatch "GET"  ["register"] = getRegisterR >>= sendResponse
 dispatch "POST" ["register"] = postRegisterR >>= sendResponse
-dispatch "GET"  ["confirm", token] = getConfirmR token >>= sendResponse
-dispatch "POST" ["confirm", token] = postConfirmR token >>= sendResponse
+dispatch "GET"  ["confirm", token] = getConfirmTokenR token >>= sendResponse
+dispatch "GET"  ["confirm"] = getConfirmR >>= sendResponse
+dispatch "POST" ["confirm"] = postConfirmR >>= sendResponse
 dispatch "GET"  ["confirmation-email-sent"] = getConfirmationEmailSentR >>= sendResponse
 dispatch "GET"  ["register-success"] = getRegisterSuccessR >>= sendResponse
 dispatch "GET"  ["user-exists"] = getUserExistsR >>= sendResponse
 dispatch "GET"  ["login"] = getLoginR >>= sendResponse
 dispatch "POST" ["login"] = postLoginR >>= sendResponse
 dispatch "GET"  ["set-password", token] = getSetPasswordTokenR token >>= sendResponse
-dispatch "POST" ["set-password", token] = postSetPasswordTokenR token >>= sendResponse
+dispatch "GET"  ["set-password"] = getSetPasswordR >>= sendResponse
+dispatch "POST" ["set-password"] = postSetPasswordR >>= sendResponse
 dispatch "GET"  ["reset-password"] = getResetPasswordR >>= sendResponse
 dispatch "POST" ["reset-password"] = postResetPasswordR >>= sendResponse
 dispatch "GET"  ["reset-password-email-sent"] = getResetPasswordEmailSentR >>= sendResponse
@@ -251,7 +260,7 @@ postRegisterR = do
       token <- liftIO $ encryptRegisterToken (Email email')
       tp <- getRouteToParent
       renderUrl <- getUrlRender
-      let url = renderUrl $ tp $ confirmR token
+      let url = renderUrl $ tp $ confirmTokenR token
       sendVerifyEmail (Email email') url
       redirect $ tp confirmationEmailSentR
     Nothing -> do
@@ -276,15 +285,29 @@ postResetPasswordR = do
     Nothing -> do
       redirect $ tp resetPasswordEmailSentR
 
-getConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
-getConfirmR token =
-  liftIO (verifyRegisterToken token) >>= either verifyFail verifySucc
+getConfirmTokenR :: Text -> AuthHandler a TypedContent
+getConfirmTokenR token = do
+  setSession passwordTokenSessionKey token
+  tp <- getRouteToParent
+  redirect $ tp confirmR
+
+getConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
+getConfirmR = do
+  mToken <- lookupSession passwordTokenSessionKey
+  case mToken of
+    Nothing -> invalidTokenHandler invalidTokenMessage
+    Just token ->
+      liftIO (verifyRegisterToken token) >>= either verifyFail verifySucc
   where
-    verifyFail = invalidTokenHandler
+    verifyFail msg   = do deleteSession passwordTokenSessionKey
+                          invalidTokenHandler msg
     verifySucc email = getUserId email >>=
-                         maybe (doConfirm email) redirectToHome
-    redirectToHome uid = setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-    doConfirm = confirmHandlerHelper token
+                          maybe (doConfirm email) redirectToHome
+    redirectToHome uid = do
+      deleteSession passwordTokenSessionKey
+      setCredsRedirect $ Creds "simple" (toPathPiece uid) []
+    doConfirm email = do tp <- getRouteToParent
+                         confirmHandler (tp confirmR) email
 
 invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
 invalidTokenHandler msg = do
@@ -296,11 +319,6 @@ invalidTokenHandler msg = do
     & responseBuilder badRequest400 contentType
     & sendWaiResponse
 
-confirmHandlerHelper :: YesodAuthSimple a => Text -> Email -> AuthHandler a TypedContent
-confirmHandlerHelper token email = do
-  tp <- getRouteToParent
-  confirmHandler (tp $ confirmR token) email
-
 confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a TypedContent
 confirmHandler registerUrl email = do
   mErr <- getError
@@ -309,31 +327,34 @@ confirmHandler registerUrl email = do
     setTitle "Confirm account"
     confirmTemplate tp registerUrl email mErr
 
-postConfirmR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
-postConfirmR token = do
+postConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
+postConfirmR = do
   clearError
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
-  if not okCsrf
-    then invalidTokenHandler invalidCsrfMessage
-    else do
-      password <- runInputPost $ ireq textField "password"
+  mToken <- lookupSession passwordTokenSessionKey
+  case mToken of
+    _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
+    Nothing -> invalidTokenHandler invalidTokenMessage
+    Just token -> do
       res  <- liftIO $ verifyRegisterToken token
       case res of
         Left msg ->
           invalidTokenHandler msg
-        Right email ->
-          createUser token email (Pass . encodeUtf8 $ password)
+        Right email -> do
+          password <- runInputPost $ ireq textField "password"
+          createUser email (Pass . encodeUtf8 $ password)
 
-createUser :: forall m. YesodAuthSimple m => Text -> Email -> Pass -> AuthHandler m TypedContent
-createUser token email password = do
+createUser :: forall m. YesodAuthSimple m => Email -> Pass -> AuthHandler m TypedContent
+createUser email password = do
   check <- liftIO $ strengthToEither
           <$> checkPasswordStrength (passwordCheck @m) password
   case check of
     Left msg -> do
       setError msg
       tp <- getRouteToParent
-      redirect $ tp $ confirmR token
+      redirect $ tp $ confirmR
     Right _ -> do
+      deleteSession passwordTokenSessionKey
       encrypted <- liftIO $ encryptPassIO' password
       mUid      <- insertUser email encrypted
       case mUid of
@@ -478,51 +499,77 @@ wrongEmailOrPasswordRedirect = do
   tp <- getRouteToParent
   redirect $ tp loginR
 
-getSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
-getSetPasswordTokenR token = do
-  res <- verifyPasswordResetToken token
-  case res of
-    Left msg -> invalidTokenHandler msg
-    Right _ -> do
-      tp <- getRouteToParent
-      mErr <- getError
-      selectRep . provideRep . authLayout $ do
-        setTitle "Set password"
-        setPasswordTemplate tp (tp $ setPasswordTokenR token) mErr
+passwordTokenSessionKey :: Text
+passwordTokenSessionKey = "yas_set_password_token"
 
 invalidCsrfMessage :: Text
 invalidCsrfMessage = "Invalid anti-forgery token. Please try again in a new browser tab or window. Contact support if the problem persists"
 
+invalidTokenMessage :: Text
+invalidTokenMessage = "Invalid password reset token. Please try again and contact support if the problem persists"
+
+getSetPasswordTokenR :: Text -> AuthHandler a TypedContent
+getSetPasswordTokenR token = do
+  -- Move the token into a session cookie and redirect to the
+  -- token-less URL (in order to avoid referrer leakage). The
+  -- alternative is to invalidate the token immediately and embed a
+  -- new one in the html form, but this has worse UX
+  setSession passwordTokenSessionKey token
+  tp <- getRouteToParent
+  redirect $ tp setPasswordR
+
+getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
+getSetPasswordR = do
+  mToken <- lookupSession passwordTokenSessionKey
+  case mToken of
+    Nothing -> invalidTokenHandler invalidTokenMessage
+    Just token -> do
+      res <- verifyPasswordResetToken token
+      case res of
+        Left msg -> invalidTokenHandler msg
+        Right _ -> do
+          tp <- getRouteToParent
+          mErr <- getError
+          selectRep . provideRep . authLayout $ do
+            setTitle "Set password"
+            setPasswordTemplate tp (tp setPasswordR) mErr
+
 -- | Set a new password for the user
-postSetPasswordTokenR :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
-postSetPasswordTokenR token = do
+postSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
+postSetPasswordR = do
   clearError
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
-  if not okCsrf then invalidTokenHandler invalidCsrfMessage else do
-    password <- runInputPost $ ireq textField "password"
-    res  <- verifyPasswordResetToken token
-    case res of
-      Left msg  -> invalidTokenHandler msg
-      Right uid -> setPassToken token uid (Pass . encodeUtf8 $ password)
+  mToken <- lookupSession passwordTokenSessionKey
+  case mToken of
+    _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
+    Nothing -> do
+      deleteSession passwordTokenSessionKey
+      invalidTokenHandler invalidTokenMessage
+    Just token -> do
+      password <- runInputPost $ ireq textField "password"
+      res <- verifyPasswordResetToken token
+      case res of
+        Left msg  -> invalidTokenHandler msg
+        Right uid -> setPass uid (Pass . encodeUtf8 $ password)
 
-setPassToken
+setPass
   :: forall a. YesodAuthSimple a
-  => Text
-  -> AuthSimpleId a
+  => AuthSimpleId a
   -> Pass
   -> AuthHandler a TypedContent
-setPassToken token uid password = do
+setPass uid password = do
   check <- liftIO $ strengthToEither
           <$> checkPasswordStrength (passwordCheck @a) password
   case check of
     Left msg -> do
       setError msg
       tp <- getRouteToParent
-      redirect $ tp $ setPasswordTokenR token
+      redirect $ tp setPasswordR
     Right _ -> do
       encrypted <- liftIO $ encryptPassIO' password
       _         <- updateUserPassword uid encrypted
       onPasswordUpdated
+      deleteSession passwordTokenSessionKey
       setCredsRedirect $ Creds "simple" (toPathPiece uid) []
 
 verifyRegisterToken :: Text -> IO (Either Text Email)
