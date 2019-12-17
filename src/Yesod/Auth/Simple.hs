@@ -42,6 +42,7 @@ module Yesod.Auth.Simple
   , registerTemplateDef
   , passwordFieldTemplateBasic
   , passwordFieldTemplateZxcvbn
+  , honeypotFieldTemplate
     -- * Misc
   , encryptRegisterToken
   , maxPasswordLength
@@ -83,7 +84,7 @@ import           Yesod.Auth
 import           Yesod.Auth.Simple.Types
 import           Yesod.Core
 import           Yesod.Core.Json               as J
-import           Yesod.Form                    (ireq, runInputPost, textField)
+import           Yesod.Form                    (ireq, iopt, runInputPost, textField)
 
 minPasswordLength :: Int
 minPasswordLength = 8 -- min length required in NIST SP 800-63B
@@ -189,6 +190,9 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   onPasswordUpdated :: AuthHandler a ()
   onPasswordUpdated = setMessage "Password has been updated"
 
+  onBotPost :: AuthHandler a ()
+  onBotPost = pure ()
+
   passwordCheck :: PasswordCheck
   passwordCheck = Zxcvbn PW.Safe Vec.empty
 
@@ -253,9 +257,14 @@ getLoginR = do
 postRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 postRegisterR = do
   clearError
-  email <- runInputPost $ ireq textField "email"
+  (honeypot, email) <- runInputPost $ (,)
+                      <$> iopt textField honeypotName
+                      <*> ireq textField "email"
   mEmail <- validateAndNormalizeEmail email
   case mEmail of
+    _ | isJust honeypot -> do
+          onBotPost
+          invalidTokenHandler "An unexpected error occurred. Please try again or contact support if the problem persists"
     Just email' -> do
       token <- liftIO $ encryptRegisterToken (Email email')
       tp <- getRouteToParent
@@ -989,6 +998,23 @@ resetPasswordTemplateDef toParent mErr = [whamlet|
       <button type="submit">Reset
 |]
 
+honeypotName :: Text
+honeypotName = "yas--password-backup"
+
+honeypotFieldTemplate :: WidgetFor a ()
+honeypotFieldTemplate = do
+  toWidget
+    [lucius|
+      .#{honeypotName} { display:none !important; }
+    |]
+  toWidget
+    [hamlet|
+      $newline never
+      <fieldset class="#{honeypotName}">
+        <label for="#{honeypotName}">
+        <input type="text" name="#{honeypotName}" tabindex="none" autocomplete="off">
+    |]
+
 registerTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
 registerTemplateDef toParent mErr = [whamlet|
   $newline never
@@ -998,6 +1024,7 @@ registerTemplateDef toParent mErr = [whamlet|
   <.register>
     <h1>Register new account
     <form method="post" action="@{toParent registerR}">
+      ^{honeypotFieldTemplate}
       <fieldset>
         <label for="email">Email
         <input#email
