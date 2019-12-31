@@ -1,10 +1,10 @@
+Cabal-Version:          2.2
 Name:                   yesod-auth-simple
 Version:                0.0.0
 Author:                 Jezen Thomas <jezen@jezenthomas.com>
 Maintainer:             Jezen Thomas <jezen@jezenthomas.com>
-License:                BSD3
+License:                BSD-3-Clause
 License-File:           LICENSE
-Cabal-Version:          >= 1.10
 Build-Type:             Simple
 Extra-Source-Files:     README.md, ChangeLog.md
 Category:               Web, Yesod
@@ -48,13 +48,12 @@ Library
   Other-Modules:
     Yesod.Auth.Simple.Types
 
-Test-Suite spec
-  Type:                 exitcode-stdio-1.0
+Common test-properties
   Default-Language:     Haskell2010
   Hs-Source-Dirs:       src, test
   Ghc-Options:          -Wall
   Default-Extensions:   NoImplicitPrelude
-  Main-Is:              Spec.hs
+  Build-Tool-Depends:   hspec-discover:hspec-discover -any
   Build-Depends:
       base >= 4 && < 5
     , hspec
@@ -92,6 +91,15 @@ Test-Suite spec
     Yesod.Auth.SimpleSpec
     Yesod.Auth.Simple.TypesSpec
 
+Test-Suite spec
+  Import:               test-properties
+  Type:                 exitcode-stdio-1.0
+  Main-Is:              Spec.hs
+
+Executable yesod-auth-simple-test
+  Import:               test-properties
+  Main-Is:              Spec.hs
+
 Source-Repository head
   Type:                 git
-  Location:             https://github.com/jezen/yesod-auth-simple
+  Location:             https://github.com/riskbook/yesod-auth-simple
