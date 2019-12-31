@@ -73,7 +73,7 @@ import           Data.Time                     (Day, UTCTime (..), addUTCTime,
                                                 diffUTCTime, getCurrentTime)
 import           Data.Vector                   (Vector)
 import qualified Data.Vector                   as Vec
-import           Network.HTTP.Types            (badRequest400)
+import           Network.HTTP.Types            (badRequest400, tooManyRequests429)
 import           Network.Wai                   (responseBuilder)
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 import           Text.Email.Validate           (canonicalizeEmail)
@@ -145,6 +145,17 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
+  shouldPreventLoginAttempt :: Maybe (AuthSimpleId a) -> AuthHandler a (Maybe UTCTime)
+  shouldPreventLoginAttempt _ = pure Nothing
+
+  -- | Perform an action on a login attempt.
+  onLoginAttempt :: Maybe (AuthSimpleId a)
+                 -- ^ The user id of the given email, if one exists
+                 -> Bool
+                 -- ^ Whether the password given was correct
+                 -> AuthHandler a ()
+  onLoginAttempt _ _ = pure ()
+
   sendVerifyEmail :: Email -> VerUrl -> AuthHandler a ()
   sendVerifyEmail _ = liftIO . print
 
@@ -183,6 +194,9 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   invalidTokenTemplate :: Text -> WidgetFor a ()
   invalidTokenTemplate = invalidTokenTemplateDef
+
+  tooManyLoginAttemptsTemplate :: UTCTime -> WidgetFor a ()
+  tooManyLoginAttemptsTemplate = tooManyLoginAttemptsTemplateDef
 
   setPasswordTemplate :: (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
   setPasswordTemplate = setPasswordTemplateDef
@@ -484,29 +498,52 @@ postLoginR = do
   clearError
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
   if not okCsrf
-    then do
-      setError invalidCsrfMessage
-      tp <- getRouteToParent
-      redirect $ tp loginR
+    then redirectWithError loginR invalidCsrfMessage
     else do
       (email, password') <- runInputPost $ (,)
         <$> ireq textField "email"
         <*> ireq textField "password"
       let password = Pass . encodeUtf8 $ password'
       mUid <- getUserId (Email email)
-      case mUid of
-        Just uid -> do
+      mLockedOut <- shouldPreventLoginAttempt mUid
+      case (mLockedOut, mUid) of
+        (Just expires, _) -> tooManyLoginAttemptsHandler expires
+        (_, Just uid) -> do
           storedPassword <- getUserPassword uid
           if verifyPass' password storedPassword
-          then setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-          else wrongEmailOrPasswordRedirect
-        _ -> wrongEmailOrPasswordRedirect
+            then do
+              onLoginAttempt (Just uid) True
+              setCredsRedirect $ Creds "simple" (toPathPiece uid) []
+            else do
+              onLoginAttempt (Just uid) False
+              wrongEmailOrPasswordRedirect
+        _ -> do
+          onLoginAttempt Nothing False
+          wrongEmailOrPasswordRedirect
+
+tooManyLoginAttemptsHandler :: YesodAuthSimple a => UTCTime -> AuthHandler a TypedContent
+tooManyLoginAttemptsHandler expires = do
+  html <- authLayout $ do
+    setTitle "Too many login attempts"
+    tooManyLoginAttemptsTemplate expires
+  let contentType = [("Content-Type", "text/html")]
+  renderHtmlBuilder html
+    & responseBuilder tooManyRequests429 contentType
+    & sendWaiResponse
+
+redirectTo :: AuthRoute -> AuthHandler a b
+redirectTo route = do
+  tp <- getRouteToParent
+  redirect $ tp route
+
+redirectWithError :: AuthRoute -> Text -> AuthHandler a TypedContent
+redirectWithError route err = do
+  setError err
+  redirectTo route
 
 wrongEmailOrPasswordRedirect :: AuthHandler a TypedContent
-wrongEmailOrPasswordRedirect = do
-  setError "Wrong email or password"
-  tp <- getRouteToParent
-  redirect $ tp loginR
+wrongEmailOrPasswordRedirect =
+  redirectWithError loginR "Wrong email or password"
 
 passwordTokenSessionKey :: Text
 passwordTokenSessionKey = "yas_set_password_token"
@@ -929,6 +966,16 @@ invalidTokenTemplateDef msg = [whamlet|
     <h1>Invalid key
     <p>#{msg}
 |]
+
+tooManyLoginAttemptsTemplateDef :: UTCTime -> WidgetFor a ()
+tooManyLoginAttemptsTemplateDef expires = do
+  let formatted = formatTime defaultTimeLocale "%d/%m/%_Y %T" expires
+  [whamlet|
+    $newline never
+    <.too-many-attempts>
+      <h1>Too many login attempts
+      <p>You have been locked out from your account until #{formatted} GMT</p>
+  |]
 
 userExistsTemplateDef :: WidgetFor a ()
 userExistsTemplateDef = [whamlet|
