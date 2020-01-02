@@ -152,7 +152,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   onLoginAttempt :: Maybe (AuthSimpleId a)
                  -- ^ The user id of the given email, if one exists
                  -> Bool
-                 -- ^ Whether the password given was correct
+                 -- ^ Whether the password given was correct. Always
+                 -- False when user id is Nothing
                  -> AuthHandler a ()
   onLoginAttempt _ _ = pure ()
 
