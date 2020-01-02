@@ -201,8 +201,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   setPasswordTemplate :: (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
   setPasswordTemplate = setPasswordTemplateDef
 
-  onPasswordUpdated :: AuthHandler a ()
-  onPasswordUpdated = setMessage "Password has been updated"
+  onPasswordUpdated :: AuthSimpleId a -> AuthHandler a ()
+  onPasswordUpdated _ = setMessage "Password has been updated"
 
   onBotPost :: AuthHandler a ()
   onBotPost = pure ()
@@ -614,7 +614,7 @@ setPass uid password = do
     Right _ -> do
       encrypted <- liftIO $ encryptPassIO' password
       _         <- updateUserPassword uid encrypted
-      onPasswordUpdated
+      onPasswordUpdated uid
       deleteSession passwordTokenSessionKey
       setCredsRedirect $ Creds "simple" (toPathPiece uid) []
 
