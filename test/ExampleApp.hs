@@ -1,9 +1,11 @@
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
@@ -37,6 +39,11 @@ User
   password Password
   UniqueUser email
   deriving Show
+
+Token
+  email Email
+  hashed Text
+  deriving Show
 |]
 
 instance Yesod App
@@ -55,6 +62,13 @@ instance YesodAuth App where
   getAuthId = return . fromPathPiece . credsIdent
   maybeAuthId = defaultMaybeAuthId
 
+getTestToken email = do
+  t <- liftIO genToken
+  storeToken email $ hashAndEncodeToken t
+  pure $ encodeToken t
+
+storeToken e t = void . liftHandler . runDB . insert $ Token e t
+
 instance YesodAuthSimple App where
   type AuthSimpleId App = Key User
 
@@ -70,8 +84,21 @@ instance YesodAuthSimple App where
     liftHandler . runDB . fmap mkPass . get404
 
   afterPasswordRoute = error "forced afterPasswordRoute"
-  getUserModified = error "forced getUserModified"
   updateUserPassword = error "forced updateUserPassword"
+
+  sendVerifyEmail email _ hashed = storeToken email hashed
+  sendResetPasswordEmail email _ hashed = storeToken email hashed
+
+  matchRegistrationToken hashed = liftHandler . runDB $ do
+    ents <- selectList [TokenHashed ==. hashed] [LimitTo 1]
+    pure $ tokenEmail . entityVal <$> listToMaybe ents
+
+  matchPasswordToken hashed = liftHandler . runDB $ do
+    ents <- selectList [TokenHashed ==. hashed] [LimitTo 1]
+    -- mEmail <- userEmail . entityVal <$> listToMaybe ents
+    case tokenEmail . entityVal <$> listToMaybe ents of
+      Just em -> fmap (fmap entityKey) $ getBy $ UniqueUser em
+      Nothing -> pure Nothing
 
   onRegisterSuccess = sendResponseStatus ok200 ()
   insertUser _email _pass = pure . Just $ (toSqlKey 1 :: Key User)

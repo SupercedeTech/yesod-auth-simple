@@ -1,7 +1,7 @@
 { mkDerivation, aeson, base, base16-bytestring, base64-bytestring
 , blaze-html, bytestring, classy-prelude, classy-prelude-yesod
-, clientsession, directory, email-validate, fast-logger, hspec
-, hspec-discover, http-types, monad-logger, persistent
+, cryptonite, directory, email-validate, fast-logger, hspec
+, hspec-discover, http-types, memory, monad-logger, persistent
 , persistent-sqlite, scrypt, stdenv, text, time, vector, wai, yesod
 , yesod-auth, yesod-core, yesod-form, yesod-test, zxcvbn-hs
 }:
@@ -13,22 +13,22 @@ mkDerivation {
   isExecutable = true;
   libraryHaskellDepends = [
     aeson base base16-bytestring base64-bytestring blaze-html
-    bytestring classy-prelude classy-prelude-yesod clientsession
-    email-validate http-types persistent scrypt text time vector wai
-    yesod-auth yesod-core yesod-form zxcvbn-hs
+    bytestring classy-prelude classy-prelude-yesod cryptonite
+    email-validate http-types memory persistent scrypt text time vector
+    wai yesod-auth yesod-core yesod-form zxcvbn-hs
   ];
   executableHaskellDepends = [
     aeson base base64-bytestring blaze-html bytestring classy-prelude
-    classy-prelude-yesod clientsession directory email-validate
-    fast-logger hspec http-types monad-logger persistent
+    classy-prelude-yesod cryptonite directory email-validate
+    fast-logger hspec http-types memory monad-logger persistent
     persistent-sqlite scrypt text time vector wai yesod yesod-auth
     yesod-core yesod-form yesod-test zxcvbn-hs
   ];
   executableToolDepends = [ hspec-discover ];
   testHaskellDepends = [
     aeson base base64-bytestring blaze-html bytestring classy-prelude
-    classy-prelude-yesod clientsession directory email-validate
-    fast-logger hspec http-types monad-logger persistent
+    classy-prelude-yesod cryptonite directory email-validate
+    fast-logger hspec http-types memory monad-logger persistent
     persistent-sqlite scrypt text time vector wai yesod yesod-auth
     yesod-core yesod-form yesod-test zxcvbn-hs
   ];
