@@ -2,8 +2,9 @@
 
 This library is a [Yesod](https://www.yesodweb.com) [subsite](https://www.yesodweb.com/book/creating-a-subsite) that serves as a basis for user management and authentication in the traditional way (that is, users and their credentials are stored in a database you control). It includes both the backend route handlers and the frontend UI for login, registration, and password resets, which can optionally be extended or replaced. As a user, you need to provide implementations of sending appropriate emails, and user persistence. Features include:
 
-* Ready-to-go route handlers and UI for login, registration and password reset flows
-* Password hashing and reset tokens are handled for you via Colin Percival's [Scrypt](https://hackage.haskell.org/package/scrypt) implementation. Just write the functions that store them in the database.
+* Ready-to-go route handlers and UI for login, registration and password reset flows.
+* Password hashing and salting is done via Colin Percival's [Scrypt](https://hackage.haskell.org/package/scrypt) implementation. Just write the functions that store the hashes in the database.
+* Registration and password reset tokens are generated and hashed for you. You write your own read/write/delete persistence and code to send the emails.
 * A colourful password strength meter with feedback using [zxcvbn](https://blogs.dropbox.com/tech/2012/04/zxcvbn-realistic-password-strength-estimation/) (Traditional password checking based on length is also supported).
 * Sensible splitting of UI into subcomponents so that you can use, for example, just the password input and strength meter in your own larger-scale forms.
 * Useful lifecycle hooks that can be used to implement features like rate-limiting and session invalidation on password changes.
@@ -46,9 +47,16 @@ instance YesodAuthSimple App where
   getUserPassword userId = -- Look in the DB and return a Crypto.Scrypt.EncryptedPass
   getUserModified userId = ...
 
-  sendVerifyEmail email urlToSend = ...
-  sendResetPasswordEmail email urlToSend = ...
+  -- The following functions should persist the hashed token for later lookup
+  sendVerifyEmail email urlToSend hashedToken = ...
+  sendResetPasswordEmail email urlToSend hashedToken = ...
 
+  -- The following functions should return an email or user id if the token is valid
+  matchRegistrationToken hashedToken = ...
+  matchPasswordToken hashedToken = ...
+
+  onRegistrationTokenUsed = -- e.g. invalidate the new user's token
+  onPasswordUpdated  = -- e.g. invalidate sessions and any password reset tokens
   afterPasswordRoute = -- e.g. redirect to the homepage after resetting password
   onRegisterSuccess  = -- e.g. redirect them to the homepage after registering
 ```
@@ -76,7 +84,7 @@ Please also beware of logging the HTTP `Referrer` header and confirmation/reset 
 
 The library aims to support applications seeking [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html) AAL1 compliance. To the best of our understanding, the library provides a [compliant](https://pages.nist.gov/800-63-3/sp800-63b.html#sec5) "memorized secret authenticator", provided that the user implements rate-limiting (the `shouldPreventLoginAttempt` and `onLoginAttempt` class functions can be used for this).
 
-The library cannot claim compliance with the guidelines overall (at a particular AAL) because: 1) the library does not handle everything covered there (for example, session management), 2) some template and route customisation could always override our compliant defaults, and 3) the password reset functionality is not compliant; in NIST terminology it is considered an "out of band authenticator" and the guidelines specifically prohibit the use of email for this.
+The library cannot claim compliance with the guidelines overall (at a particular AAL) because: 1) the library does not handle everything covered there (for example, session management), 2) some template and route customisation could always override our compliant defaults, and 3) password reset functionality via email is problematic; in NIST terminology it is considered an "out of band authenticator" and the guidelines specifically prohibit the use of email for this.
 
 Note that scrypt [uses](https://tools.ietf.org/html/rfc7914#page-7) HMAC-SHA256 and so is compliant with NIST's hashing requirements.
 
