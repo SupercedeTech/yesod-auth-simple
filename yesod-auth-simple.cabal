@@ -30,9 +30,10 @@ Library
     , bytestring
     , classy-prelude        >= 0.10.2
     , classy-prelude-yesod  >= 1.1
-    , clientsession
+    , cryptonite
     , email-validate
     , http-types
+    , memory
     , scrypt
     , text
     , time
@@ -63,11 +64,12 @@ Common test-properties
     , bytestring
     , classy-prelude        >= 0.10.2
     , classy-prelude-yesod  >= 1.1
-    , clientsession
+    , cryptonite
     , directory
     , email-validate
     , fast-logger
     , http-types
+    , memory
     , monad-logger
     , persistent >= 2.8.2
     , persistent-sqlite

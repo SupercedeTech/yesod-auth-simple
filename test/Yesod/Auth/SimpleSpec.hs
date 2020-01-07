@@ -6,7 +6,6 @@ module Yesod.Auth.SimpleSpec (spec) where
 import qualified Data.Text  as T
 import           TestImport
 
-
 spec :: Spec
 spec = withApp $ do
 
@@ -51,7 +50,7 @@ spec = withApp $ do
       it "returns the user to the confirmation form with an error" $ do
         let email = "user@example.com"
         ur <- runHandler getUrlRender
-        t <- liftIO $ encryptRegisterToken (Email email)
+        t <- runHandler . getTestToken $ Email email
         get $ AuthR $ confirmTokenR t
         _ <- followRedirect
         request $ do
@@ -72,7 +71,7 @@ spec = withApp $ do
             -- github.com/sthenauth/zxcvbn-hs/issues/2
             password = T.replicate 12 "one two three" -- 156 chars
         ur <- runHandler getUrlRender
-        t <- liftIO $ encryptRegisterToken (Email email)
+        t <- runHandler . getTestToken $ Email email
         get $ AuthR $ confirmTokenR t
         _ <- followRedirect
         request $ do
@@ -93,7 +92,7 @@ spec = withApp $ do
           setMethod "POST"
           setUrl $ AuthR registerR
           byLabelExact "Email" email
-        token <- liftIO $ encryptRegisterToken (Email email)
+        token <- runHandler . getTestToken $ Email email
         get $ AuthR $ confirmTokenR token
         _ <- followRedirect
         request $ do
@@ -124,7 +123,7 @@ spec = withApp $ do
             userPassword = Password . decodeUtf8 . getEncryptedPass $ encrypted
         runDB' . insert_ $ User{..}
 
-        token <- liftIO $ encryptRegisterToken userEmail
+        token <- runHandler $ getTestToken userEmail -- encryptRegisterToken userEmail
         get $ AuthR $ confirmTokenR token
         _ <- followRedirect
         statusIs 303

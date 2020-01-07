@@ -43,8 +43,12 @@ module Yesod.Auth.Simple
   , passwordFieldTemplateBasic
   , passwordFieldTemplateZxcvbn
   , honeypotFieldTemplate
+    -- * Tokens
+  , genToken
+  , encodeToken
+  , hashAndEncodeToken
+  , decodeToken
     -- * Misc
-  , encryptRegisterToken
   , maxPasswordLength
     -- * Types
   , Email(..)
@@ -58,9 +62,13 @@ module Yesod.Auth.Simple
   ) where
 
 import           ClassyPrelude
+import           Crypto.Hash                   (Digest, SHA256)
+import qualified Crypto.Hash                   as C
+import           Crypto.Random                 (getRandomBytes)
 import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
                                                 encryptPassIO', verifyPass')
 import           Data.Aeson
+import qualified Data.ByteArray                as ByteArray
 import           Data.ByteString               (ByteString)
 import qualified Data.ByteString.Base64        as B64
 import qualified Data.ByteString.Base64.URL    as B64Url
@@ -69,22 +77,23 @@ import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With)
 import           Data.Text.Encoding.Error      (lenientDecode)
-import           Data.Time                     (Day, UTCTime (..), addUTCTime,
-                                                diffUTCTime, getCurrentTime)
+import           Data.Time                     (Day, UTCTime (..),
+                                                getCurrentTime)
 import           Data.Vector                   (Vector)
 import qualified Data.Vector                   as Vec
-import           Network.HTTP.Types            (badRequest400, tooManyRequests429)
+import           Network.HTTP.Types            (badRequest400,
+                                                tooManyRequests429)
 import           Network.Wai                   (responseBuilder)
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 import           Text.Email.Validate           (canonicalizeEmail)
 import qualified Text.Password.Strength        as PW
 import qualified Text.Password.Strength.Config as PW
-import qualified Web.ClientSession             as CS
 import           Yesod.Auth
 import           Yesod.Auth.Simple.Types
 import           Yesod.Core
 import           Yesod.Core.Json               as J
-import           Yesod.Form                    (ireq, iopt, runInputPost, textField)
+import           Yesod.Form                    (iopt, ireq, runInputPost,
+                                                textField)
 
 minPasswordLength :: Int
 minPasswordLength = 8 -- min length required in NIST SP 800-63B
@@ -137,8 +146,6 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
 
-  getUserModified :: AuthSimpleId a -> AuthHandler a UTCTime
-
   onRegisterSuccess :: AuthHandler a TypedContent
 
   insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
@@ -157,11 +164,33 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
                  -> AuthHandler a ()
   onLoginAttempt _ _ = pure ()
 
-  sendVerifyEmail :: Email -> VerUrl -> AuthHandler a ()
-  sendVerifyEmail _ = liftIO . print
+  -- | Called when someone requests registration.
+  sendVerifyEmail :: Email -- ^ A valid email they've registered.
+                  -> VerUrl -- ^ An verification URL (in absolute form).
+                  -> Text   -- ^ A sha256 base64-encoded hash of the
+                           -- verification token. You should store this in your
+                           -- database.
+                  -> AuthHandler a ()
+  sendVerifyEmail _ url _ = liftIO . print $ url
 
-  sendResetPasswordEmail :: Email -> VerUrl -> AuthHandler a ()
-  sendResetPasswordEmail _ = liftIO . print
+  -- | Like 'sendVerifyEmail' but for password resets.
+  sendResetPasswordEmail :: Email -> VerUrl -> Text -> AuthHandler a ()
+  sendResetPasswordEmail _ url _ = liftIO . print $ url
+
+  -- | Given a hashed and base64-encoded token from the user, look up
+  -- if the token is still valid and return the associated email if so.
+  matchRegistrationToken :: Text -> AuthHandler a (Maybe Email)
+
+  -- | Like 'matchRegistrationToken' but for password resets.
+  matchPasswordToken :: Text -> AuthHandler a (Maybe (AuthSimpleId a))
+
+  -- | Can be used to invalidate the registration token. This is
+  -- different from 'onRegisterSuccess' because this will also be
+  -- called for existing users who use the registration form as a
+  -- one-time login link. Note that 'onPasswordUpdated' can handle the
+  -- case where a password reset token is used.
+  onRegistrationTokenUsed :: Email -> AuthHandler a ()
+  onRegistrationTokenUsed _ = pure ()
 
   passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
   passwordFieldTemplate tp =
@@ -202,6 +231,9 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   setPasswordTemplate :: (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
   setPasswordTemplate = setPasswordTemplateDef
 
+  -- | Run after a user successfully changing the user's
+  -- password. This is a good time to delete any password reset tokens
+  -- for this user.
   onPasswordUpdated :: AuthSimpleId a -> AuthHandler a ()
   onPasswordUpdated _ = setMessage "Password has been updated"
 
@@ -269,6 +301,45 @@ getLoginR = do
       loginTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
+passwordTokenSessionKey :: Text
+passwordTokenSessionKey = "yas_set_password_token"
+
+genToken :: IO ByteString
+genToken = getRandomBytes 24
+
+-- | Hashes input via SHA256 and returns the hash encoded as base64 text
+hashAndEncodeToken :: ByteString -> Text
+hashAndEncodeToken bs = decodeUtf8 . B64.encode
+               $ ByteArray.convert (C.hash bs :: Digest SHA256)
+
+-- encode to base64url form
+encodeToken :: ByteString -> Text
+encodeToken = decodeUtf8With lenientDecode . B64Url.encode
+
+-- Decode from base64url. Lenient decoding because this is random
+-- input from the user and not all valid utf8 is valid base64
+decodeToken :: Text -> ByteString
+decodeToken = B64Url.decodeLenient . encodeUtf8
+
+verifyRegisterTokenFromSession :: YesodAuthSimple a
+                               => AuthHandler a (Maybe Email)
+verifyRegisterTokenFromSession = do
+  maybe (pure Nothing) matchRegistrationToken
+    =<< lookupSession passwordTokenSessionKey
+
+verifyPasswordTokenFromSession :: YesodAuthSimple a
+                               => AuthHandler a (Maybe (AuthSimpleId a))
+verifyPasswordTokenFromSession = do
+  maybe (pure Nothing) matchPasswordToken
+    =<< lookupSession passwordTokenSessionKey
+
+markRegisterTokenAsUsed :: YesodAuthSimple a => Maybe Email -> AuthHandler a ()
+markRegisterTokenAsUsed mEmail = do
+  deleteSession passwordTokenSessionKey
+  case mEmail of
+    Just email -> onRegistrationTokenUsed email
+    _          -> pure ()
+
 postRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 postRegisterR = do
   clearError
@@ -281,11 +352,12 @@ postRegisterR = do
           onBotPost
           invalidTokenHandler "An unexpected error occurred. Please try again or contact support if the problem persists"
     Just email' -> do
-      token <- liftIO $ encryptRegisterToken (Email email')
       tp <- getRouteToParent
       renderUrl <- getUrlRender
-      let url = renderUrl $ tp $ confirmTokenR token
-      sendVerifyEmail (Email email') url
+      rawToken <- liftIO genToken
+      let url = renderUrl . tp . confirmTokenR $ encodeToken rawToken
+          hashed = hashAndEncodeToken rawToken
+      sendVerifyEmail (Email email') url hashed
       redirect $ tp confirmationEmailSentR
     Nothing -> do
       setError "Invalid email address"
@@ -299,36 +371,38 @@ postResetPasswordR = do
   mUid  <- getUserId $ Email $ normalizeEmail email
   tp <- getRouteToParent
   case mUid of
-    Just uid -> do
-      modified <- getUserModified uid
-      token <- encryptPasswordResetToken uid modified
+    Just _ -> do
       renderUrl <- getUrlRender
-      let url = renderUrl $ tp $ setPasswordTokenR token
-      sendResetPasswordEmail (Email email) url
+      rawToken <- liftIO genToken
+      let url = renderUrl . tp . setPasswordTokenR $ encodeToken rawToken
+          hashed = hashAndEncodeToken rawToken
+      sendResetPasswordEmail (Email email) url hashed
       redirect $ tp resetPasswordEmailSentR
     Nothing -> do
       redirect $ tp resetPasswordEmailSentR
 
 getConfirmTokenR :: Text -> AuthHandler a TypedContent
 getConfirmTokenR token = do
-  setSession passwordTokenSessionKey token
+  setSession passwordTokenSessionKey . hashAndEncodeToken . decodeToken $ token
   tp <- getRouteToParent
   redirect $ tp confirmR
 
 getConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmR = do
-  mToken <- lookupSession passwordTokenSessionKey
-  case mToken of
-    Nothing -> invalidTokenHandler invalidTokenMessage
-    Just token ->
-      liftIO (verifyRegisterToken token) >>= either verifyFail verifySucc
+  mEmail <- verifyRegisterTokenFromSession
+  case mEmail of
+    Nothing -> do
+      markRegisterTokenAsUsed Nothing
+      invalidTokenHandler invalidRegistrationMessage
+    Just email ->
+      -- If user already registered, redirect to homepage as
+      -- authenticated user. Otherwise, keep the token in the cookie
+      -- and redirect to the confirm handler, checking and deleting
+      -- the token only after the user sets up their password.
+      getUserId email >>= maybe (doConfirm email) (redirectToHome email)
   where
-    verifyFail msg   = do deleteSession passwordTokenSessionKey
-                          invalidTokenHandler msg
-    verifySucc email = getUserId email >>=
-                          maybe (doConfirm email) redirectToHome
-    redirectToHome uid = do
-      deleteSession passwordTokenSessionKey
+    redirectToHome email uid = do
+      markRegisterTokenAsUsed $ Just email
       setCredsRedirect $ Creds "simple" (toPathPiece uid) []
     doConfirm email = do tp <- getRouteToParent
                          confirmHandler (tp confirmR) email
@@ -355,18 +429,13 @@ postConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
 postConfirmR = do
   clearError
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
-  mToken <- lookupSession passwordTokenSessionKey
-  case mToken of
+  mEmail <- verifyRegisterTokenFromSession
+  case mEmail of
     _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
     Nothing -> invalidTokenHandler invalidTokenMessage
-    Just token -> do
-      res  <- liftIO $ verifyRegisterToken token
-      case res of
-        Left msg ->
-          invalidTokenHandler msg
-        Right email -> do
-          password <- runInputPost $ ireq textField "password"
-          createUser email (Pass . encodeUtf8 $ password)
+    Just email -> do
+      password <- runInputPost $ ireq textField "password"
+      createUser email (Pass . encodeUtf8 $ password)
 
 createUser :: forall m. YesodAuthSimple m => Email -> Pass -> AuthHandler m TypedContent
 createUser email password = do
@@ -378,7 +447,7 @@ createUser email password = do
       tp <- getRouteToParent
       redirect $ tp $ confirmR
     Right _ -> do
-      deleteSession passwordTokenSessionKey
+      markRegisterTokenAsUsed $ Just email
       encrypted <- liftIO $ encryptPassIO' password
       mUid      <- insertUser email encrypted
       case mUid of
@@ -546,11 +615,11 @@ wrongEmailOrPasswordRedirect :: AuthHandler a TypedContent
 wrongEmailOrPasswordRedirect =
   redirectWithError loginR "Wrong email or password"
 
-passwordTokenSessionKey :: Text
-passwordTokenSessionKey = "yas_set_password_token"
-
 invalidCsrfMessage :: Text
 invalidCsrfMessage = "Invalid anti-forgery token. Please try again in a new browser tab or window. Contact support if the problem persists"
+
+invalidRegistrationMessage :: Text
+invalidRegistrationMessage = "Invalid registration link. Please try registering again and contact support if the problem persists"
 
 invalidTokenMessage :: Text
 invalidTokenMessage = "Invalid password reset token. Please try again and contact support if the problem persists"
@@ -561,43 +630,36 @@ getSetPasswordTokenR token = do
   -- token-less URL (in order to avoid referrer leakage). The
   -- alternative is to invalidate the token immediately and embed a
   -- new one in the html form, but this has worse UX
-  setSession passwordTokenSessionKey token
+  setSession passwordTokenSessionKey . hashAndEncodeToken . decodeToken $ token
   tp <- getRouteToParent
   redirect $ tp setPasswordR
 
 getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getSetPasswordR = do
-  mToken <- lookupSession passwordTokenSessionKey
-  case mToken of
+  mUid <- verifyPasswordTokenFromSession
+  case mUid of
     Nothing -> invalidTokenHandler invalidTokenMessage
-    Just token -> do
-      res <- verifyPasswordResetToken token
-      case res of
-        Left msg -> invalidTokenHandler msg
-        Right _ -> do
-          tp <- getRouteToParent
-          mErr <- getError
-          selectRep . provideRep . authLayout $ do
-            setTitle "Set password"
-            setPasswordTemplate tp (tp setPasswordR) mErr
+    Just _ -> do
+      tp <- getRouteToParent
+      mErr <- getError
+      selectRep . provideRep . authLayout $ do
+        setTitle "Set password"
+        setPasswordTemplate tp (tp setPasswordR) mErr
 
 -- | Set a new password for the user
 postSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 postSetPasswordR = do
   clearError
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
-  mToken <- lookupSession passwordTokenSessionKey
-  case mToken of
+  mUid <- verifyPasswordTokenFromSession
+  case mUid of
     _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
     Nothing -> do
       deleteSession passwordTokenSessionKey
       invalidTokenHandler invalidTokenMessage
-    Just token -> do
+    Just uid -> do
       password <- runInputPost $ ireq textField "password"
-      res <- verifyPasswordResetToken token
-      case res of
-        Left msg  -> invalidTokenHandler msg
-        Right uid -> setPass uid (Pass . encodeUtf8 $ password)
+      setPass uid (Pass . encodeUtf8 $ password)
 
 setPass
   :: forall a. YesodAuthSimple a
@@ -618,103 +680,6 @@ setPass uid password = do
       onPasswordUpdated uid
       deleteSession passwordTokenSessionKey
       setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-
-verifyRegisterToken :: Text -> IO (Either Text Email)
-verifyRegisterToken token = do
-  res <- decryptRegisterToken token
-  case res of
-    Left msg -> return $ Left msg
-    Right (expires, email) -> do
-      now <- getCurrentTime
-      if diffUTCTime expires now > 0
-      then return $ Right email
-      else return $ Left "Verification key has expired"
-
-verifyPasswordResetToken
-  :: YesodAuthSimple a
-  => Text
-  -> AuthHandler a (Either Text (AuthSimpleId a))
-verifyPasswordResetToken token = do
-  res <- decryptPasswordResetToken token
-  case res of
-    Left msg -> return $ Left msg
-    Right (expires, modified, uid) -> do
-      modifiedCurrent <- getUserModified uid
-      now <- liftIO getCurrentTime
-      if diffUTCTime expires now > 0 && modified == modifiedCurrent
-      then return $ Right uid
-      else return $ Left "Key has expired"
-
-getDefaultKey :: IO CS.Key
-getDefaultKey = CS.getKeyEnv "SESSION_KEY"
-
-encryptPasswordResetToken
-  :: YesodAuthSimple a
-  => AuthSimpleId a
-  -> UTCTime
-  -> AuthHandler a Text
-encryptPasswordResetToken uid modified = do
-  expires <- liftIO $ addUTCTime 3600 <$> getCurrentTime
-  key <- liftIO getDefaultKey
-  let cleartext = T.intercalate "|" [tshow expires, tshow modified, toPathPiece uid]
-  ciphertext <- liftIO $ CS.encryptIO key $ encodeUtf8 cleartext
-  return $ encodeToken ciphertext
-
-decryptPasswordResetToken
-  :: YesodAuthSimple a
-  => Text
-  -> AuthHandler a (Either Text (UTCTime, UTCTime, AuthSimpleId a))
-decryptPasswordResetToken ciphertext = do
-  key <- liftIO getDefaultKey
-  case CS.decrypt key (decodeToken ciphertext) of
-
-    Just bytes -> case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
-      [expires, modified, uid] -> return . toEither $ do
-        e <- readMay $ unpack expires
-        m <- readMay $ unpack modified
-        u <- fromPathPiece uid
-        Just (e, m, u)
-
-      _ -> return err
-
-    Nothing -> return err
-  where
-    err = Left "Failed to decode key"
-    toEither = \case
-      Just v -> Right v
-      Nothing -> err
-
-encryptRegisterToken :: Email -> IO Text
-encryptRegisterToken (Email email) = do
-  expires <- addUTCTime 86400 <$> getCurrentTime
-  key <- getDefaultKey
-  let cleartext = T.intercalate "|" [ tshow expires, email ]
-  ciphertext <- CS.encryptIO key $ encodeUtf8 cleartext
-  return $ encodeToken ciphertext
-
-decryptRegisterToken :: Text -> IO (Either Text (UTCTime, Email))
-decryptRegisterToken ciphertext = do
-  key <- getDefaultKey
-  case CS.decrypt key (decodeToken ciphertext) of
-    Just bytes -> case T.splitOn "|" (decodeUtf8With lenientDecode bytes) of
-      [expires, email] -> return . toEither $ do
-        e <- readMay (unpack expires) :: Maybe UTCTime
-        Just (e, Email email)
-      _ -> return err
-    Nothing -> return err
-  where
-    err = Left "Failed to decode key"
-    toEither = \case
-      Just v -> Right v
-      Nothing -> err
-
--- Re-encode to url-safe base64
-encodeToken :: ByteString -> Text
-encodeToken = decodeUtf8With lenientDecode . B64Url.encode . B64.decodeLenient
-
--- Re-encode to regular base64
-decodeToken :: Text -> ByteString
-decodeToken = B64.encode . B64Url.decodeLenient . encodeUtf8
 
 redirectTemplate :: Route a -> WidgetFor a ()
 redirectTemplate destUrl = do
