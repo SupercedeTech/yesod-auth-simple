@@ -55,6 +55,7 @@ module Yesod.Auth.Simple
   , Password(..)
   , PW.Strength(..)
   , PasswordCheck(..)
+  , PasswordStrength(..)
     -- * Re-export from Scrypt
   , EncryptedPass(..)
   , Pass(..)
