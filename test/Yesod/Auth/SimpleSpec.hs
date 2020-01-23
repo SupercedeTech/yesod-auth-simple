@@ -60,6 +60,8 @@ spec = withApp $ do
           -- NB: The following password would be fine without the
           -- commonDomainWords definition
           byLabelExact "Password" "hello yesod 123"
+          byLabelExact "First Name" "Michael"
+          byLabelExact "Last Name" "Jordan"
         r <- followRedirect
         assertEq "path is confirmation form" (Right (ur (AuthR confirmR))) r
 
@@ -79,6 +81,8 @@ spec = withApp $ do
           setMethod "POST"
           setUrl $ AuthR $ confirmR
           byLabelExact "Password" password
+          byLabelExact "First Name" "Michael"
+          byLabelExact "Last Name" "Jordan"
         r <- followRedirect
         assertEq "path is confirmation form" (Right (ur (AuthR confirmR))) r
 

@@ -149,7 +149,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   onRegisterSuccess :: AuthHandler a TypedContent
 
-  insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
+  insertUser :: Email -> EncryptedPass -> Text -> Text -> AuthHandler a (Maybe (AuthSimpleId a))
 
   updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
@@ -435,11 +435,14 @@ postConfirmR = do
     _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
     Nothing -> invalidTokenHandler invalidTokenMessage
     Just email -> do
-      password <- runInputPost $ ireq textField "password"
-      createUser email (Pass . encodeUtf8 $ password)
+      (password, firstName, lastName) <- runInputPost $ (,,)
+        <$> ireq textField "password"
+        <*> ireq textField "first-name"
+        <*> ireq textField "last-name"
+      createUser email (Pass . encodeUtf8 $ password) firstName lastName
 
-createUser :: forall m. YesodAuthSimple m => Email -> Pass -> AuthHandler m TypedContent
-createUser email password = do
+createUser :: forall m. YesodAuthSimple m => Email -> Pass -> Text -> Text -> AuthHandler m TypedContent
+createUser email password firstName lastName = do
   check <- liftIO $ strengthToEither
           <$> checkPasswordStrength (passwordCheck @m) password
   case check of
@@ -450,7 +453,7 @@ createUser email password = do
     Right _ -> do
       markRegisterTokenAsUsed $ Just email
       encrypted <- liftIO $ encryptPassIO' password
-      mUid      <- insertUser email encrypted
+      mUid      <- insertUser email encrypted firstName lastName
       case mUid of
         Just uid -> do
           let creds = Creds "simple" (toPathPiece uid) []
@@ -979,8 +982,8 @@ confirmationEmailSentTemplateDef = [whamlet|
 |]
 
 confirmTempateDef :: forall a. YesodAuthSimple a => (AuthRoute -> Route a) -> Route a -> Email -> Maybe Text -> WidgetFor a ()
-confirmTempateDef toParent confirmUrl (Email email) mErr =
-  let pwField = passwordFieldTemplate @a toParent in
+confirmTempateDef toParent confirmUrl (Email email) mErr = do
+  let pwField = passwordFieldTemplate @a toParent
   [whamlet|
     $newline never
     $maybe err <- mErr
@@ -991,6 +994,10 @@ confirmTempateDef toParent confirmUrl (Email email) mErr =
       <form method="post" action="@{confirmUrl}">
         ^{csrfTokenTemplate}
         <p>#{email}
+        <label>First Name
+          <input name=first-name>
+        <label>Last Name
+          <input name=last-name>
         ^{pwField}
         <button type="submit">Set Password
   |]

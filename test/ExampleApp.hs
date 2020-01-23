@@ -101,7 +101,7 @@ instance YesodAuthSimple App where
       Nothing -> pure Nothing
 
   onRegisterSuccess = sendResponseStatus ok200 ()
-  insertUser _email _pass = pure . Just $ (toSqlKey 1 :: Key User)
+  insertUser _email _pass _ _ = pure . Just $ (toSqlKey 1 :: Key User)
   passwordCheck = Zxcvbn Safe (Vec.fromList ["yesod"])
 
 instance YesodAuthPersist App
