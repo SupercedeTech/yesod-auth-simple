@@ -8,10 +8,16 @@
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 
--- | A Yesod plugin for traditional email/password authentication
---
--- This plugin uses an alternative flow to Yesod.Auth.Email fom the yesod-auth
--- package.
+{- | A Yesod plugin for traditional email/password authentication
+
+ This plugin uses an alternative flow to Yesod.Auth.Email fom the yesod-auth
+ package.
+
+__Note:__ this plugin reserves the following session names for its needs:
+
+ * @yesod-auth-simple-error@
+ * @yesod-auth-simple-email@
+-}
 
 module Yesod.Auth.Simple
   ( -- * Plugin
@@ -199,7 +205,11 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
       Zxcvbn minStren extraWords' -> passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
-  loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> Maybe Text -> WidgetFor a ()
+  loginTemplate
+    :: (AuthRoute -> Route a)
+    -> Maybe Text  -- ^ Error
+    -> Maybe Text  -- ^ Email
+    -> WidgetFor a ()
   loginTemplate = loginTemplateDef
 
   registerTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
@@ -553,29 +563,47 @@ validateAndNormalizeEmail email = case canonicalizeEmail $ encodeUtf8 email of
       return $ Just $ normalizeEmail $ decodeUtf8With lenientDecode bytes
   Nothing -> return Nothing
 
+-- | Session name used for the errors.
+errorSessionName :: Text
+errorSessionName = "yesod-auth-simple-error"
+
+-- | Session name used for the email storage.
+emailSessionName :: Text
+emailSessionName = "yesod-auth-simple-email"
+
+{- | Get the error session (see 'errorSessionName') if present. It also clears
+up the session after.
+-}
 getError :: AuthHandler a (Maybe Text)
 getError = do
-  mErr <- lookupSession "error"
+  mErr <- lookupSession errorSessionName
   clearError
   return mErr
 
+-- | Sets up the error session ('errorSessionName') to the given value.
 setError :: Text -> AuthHandler a ()
-setError = setSession "error"
+setError = setSession errorSessionName
 
+-- | Clears up the error session ('errorSessionName').
 clearError :: AuthHandler a ()
-clearError = deleteSession "error"
+clearError = deleteSession errorSessionName
 
+{- | Get the email session (see 'emailSessionName') if present. It also clears
+up the session after.
+-}
 getEmail :: AuthHandler a (Maybe Text)
 getEmail = do
-  mEmail <- lookupSession "email"
+  mEmail <- lookupSession emailSessionName
   clearEmail
   return mEmail
 
+-- | Sets up the email session ('emailSessionName') to the given value.
 setEmail :: Text -> AuthHandler a ()
-setEmail = setSession "email"
+setEmail = setSession emailSessionName
 
+-- | Clears up the email session ('emailSessionName').
 clearEmail :: AuthHandler a ()
-clearEmail = deleteSession "email"
+clearEmail = deleteSession emailSessionName
 
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
