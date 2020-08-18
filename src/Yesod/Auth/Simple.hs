@@ -729,12 +729,12 @@ loginTemplateDef toParent mErr mEmail = [whamlet|
     <fieldset>
       <label for="email">Email
       $maybe email <- mEmail
-        <input type="email" name="email" autofocus value=#{email} required>
+        <input type="email" name="email" value=#{email} required>
       $nothing
-        <input type="email" name="email" autofocus  required>
+        <input type="email" name="email" autofocus required>
     <fieldset>
       <label for="password">Password
-      <input type="password" name="password" required>
+      <input type="password" name="password" required :isJust mEmail:autofocus>
     <button type="submit">Sign in
     <p>
       <a href="@{toParent resetPasswordR}">Forgot password?
