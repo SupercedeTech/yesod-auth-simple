@@ -199,7 +199,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
       Zxcvbn minStren extraWords' -> passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
-  loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  loginTemplate :: Maybe Text -> (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
   loginTemplate = loginTemplateDef
 
   registerTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
@@ -259,7 +259,8 @@ dispatch "POST" ["confirm"] = postConfirmR >>= sendResponse
 dispatch "GET"  ["confirmation-email-sent"] = getConfirmationEmailSentR >>= sendResponse
 dispatch "GET"  ["register-success"] = getRegisterSuccessR >>= sendResponse
 dispatch "GET"  ["user-exists"] = getUserExistsR >>= sendResponse
-dispatch "GET"  ["login"] = getLoginR >>= sendResponse
+dispatch "GET"  ["login"] = getLoginR Nothing >>= sendResponse
+dispatch "GET"  ["login", email] = getLoginR (Just email) >>= sendResponse
 dispatch "POST" ["login"] = postLoginR >>= sendResponse
 dispatch "GET"  ["set-password", token] = getSetPasswordTokenR token >>= sendResponse
 dispatch "GET"  ["set-password"] = getSetPasswordR >>= sendResponse
@@ -291,15 +292,15 @@ getResetPasswordR = do
     setTitle "Reset password"
     resetPasswordTemplate tp mErr
 
-getLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
-getLoginR = do
+getLoginR :: YesodAuthSimple a => Maybe Text -> AuthHandler a TypedContent
+getLoginR maybeEmail = do
   mErr <- getError
   muid <- maybeAuthId
   tp   <- getRouteToParent
   case muid of
     Nothing -> selectRep . provideRep . authLayout $ do
       setTitle "Login"
-      loginTemplate tp mErr
+      loginTemplate  maybeEmail tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
 passwordTokenSessionKey :: Text
@@ -703,8 +704,8 @@ csrfTokenTemplate = do
       <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
   |]
 
-loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
-loginTemplateDef toParent mErr = [whamlet|
+loginTemplateDef :: Maybe Text -> (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+loginTemplateDef _mEmail toParent mErr = [whamlet|
   $newline never
   $maybe err <- mErr
     <div class="alert">#{err}
