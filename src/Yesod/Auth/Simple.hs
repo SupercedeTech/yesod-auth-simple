@@ -199,7 +199,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
       Zxcvbn minStren extraWords' -> passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
-  loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  loginTemplate :: (AuthRoute -> Route a) -> Maybe Text -> Maybe Text -> WidgetFor a ()
   loginTemplate = loginTemplateDef
 
   registerTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
@@ -294,12 +294,13 @@ getResetPasswordR = do
 getLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 getLoginR = do
   mErr <- getError
+  mEmail <- getEmail
   muid <- maybeAuthId
   tp   <- getRouteToParent
   case muid of
     Nothing -> selectRep . provideRep . authLayout $ do
       setTitle "Login"
-      loginTemplate tp mErr
+      loginTemplate tp mErr mEmail
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
 passwordTokenSessionKey :: Text
@@ -564,9 +565,22 @@ setError = setSession "error"
 clearError :: AuthHandler a ()
 clearError = deleteSession "error"
 
+getEmail :: AuthHandler a (Maybe Text)
+getEmail = do
+  mEmail <- lookupSession "email"
+  clearEmail
+  return mEmail
+
+setEmail :: Text -> AuthHandler a ()
+setEmail = setSession "email"
+
+clearEmail :: AuthHandler a ()
+clearEmail = deleteSession "email"
+
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
+  clearEmail
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
   if not okCsrf
     then redirectWithError loginR invalidCsrfMessage
@@ -574,6 +588,7 @@ postLoginR = do
       (email, password') <- runInputPost $ (,)
         <$> ireq textField "email"
         <*> ireq textField "password"
+      setEmail email
       let password = Pass . encodeUtf8 $ password'
       mUid <- getUserId (Email email)
       mLockedOut <- shouldPreventLoginAttempt mUid
@@ -702,8 +717,8 @@ csrfTokenTemplate = do
       <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
   |]
 
-loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
-loginTemplateDef toParent mErr = [whamlet|
+loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> Maybe Text -> WidgetFor a ()
+loginTemplateDef toParent mErr mEmail = [whamlet|
   $newline never
   $maybe err <- mErr
     <div class="alert">#{err}
@@ -713,7 +728,10 @@ loginTemplateDef toParent mErr = [whamlet|
     ^{csrfTokenTemplate}
     <fieldset>
       <label for="email">Email
-      <input type="email" name="email" autofocus required>
+      $maybe email <- mEmail
+        <input type="email" name="email" autofocus value=#{email} required>
+      $nothing
+        <input type="email" name="email" autofocus  required>
     <fieldset>
       <label for="password">Password
       <input type="password" name="password" required>
