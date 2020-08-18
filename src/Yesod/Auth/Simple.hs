@@ -111,8 +111,8 @@ confirmR = PluginR "simple" ["confirm"]
 confirmationEmailSentR :: AuthRoute
 confirmationEmailSentR = PluginR "simple" ["confirmation-email-sent"]
 
-loginR :: AuthRoute
-loginR = PluginR "simple" ["login"]
+loginR :: Maybe Text -> AuthRoute
+loginR email = PluginR "simple" $ ["login"] <> maybeToList email
 
 registerR :: AuthRoute
 registerR = PluginR "simple" ["register"]
@@ -245,10 +245,10 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   passwordCheck = Zxcvbn PW.Safe Vec.empty
 
 authSimple :: YesodAuthSimple m => AuthPlugin m
-authSimple = AuthPlugin "simple" dispatch loginHandlerRedirect
+authSimple = AuthPlugin "simple" dispatch (loginHandlerRedirect Nothing)
 
-loginHandlerRedirect :: (Route Auth -> Route a) -> WidgetFor a ()
-loginHandlerRedirect tm = redirectTemplate $ tm loginR
+loginHandlerRedirect :: Maybe Text -> (Route Auth -> Route a) -> WidgetFor a ()
+loginHandlerRedirect email tm = redirectTemplate $ tm $ loginR email
 
 dispatch :: YesodAuthSimple a => Text -> [Text] -> AuthHandler a TypedContent
 dispatch "GET"  ["register"] = getRegisterR >>= sendResponse
@@ -567,13 +567,14 @@ clearError = deleteSession "error"
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
+  (email, password') <- runInputPost $ (,)
+    <$> ireq textField "email"
+    <*> ireq textField "password"
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
   if not okCsrf
-    then redirectWithError loginR invalidCsrfMessage
+    then redirectWithError (loginR $ Just email) invalidCsrfMessage
     else do
-      (email, password') <- runInputPost $ (,)
-        <$> ireq textField "email"
-        <*> ireq textField "password"
+
       let password = Pass . encodeUtf8 $ password'
       mUid <- getUserId (Email email)
       mLockedOut <- shouldPreventLoginAttempt mUid
@@ -587,10 +588,10 @@ postLoginR = do
               setCredsRedirect $ Creds "simple" (toPathPiece uid) []
             else do
               onLoginAttempt (Just uid) False
-              wrongEmailOrPasswordRedirect
+              wrongEmailOrPasswordRedirect (Just email)
         _ -> do
           onLoginAttempt Nothing False
-          wrongEmailOrPasswordRedirect
+          wrongEmailOrPasswordRedirect (Just email)
 
 tooManyLoginAttemptsHandler :: YesodAuthSimple a => UTCTime -> AuthHandler a TypedContent
 tooManyLoginAttemptsHandler expires = do
@@ -612,9 +613,9 @@ redirectWithError route err = do
   setError err
   redirectTo route
 
-wrongEmailOrPasswordRedirect :: AuthHandler a TypedContent
-wrongEmailOrPasswordRedirect =
-  redirectWithError loginR "Wrong email or password"
+wrongEmailOrPasswordRedirect :: Maybe Text -> AuthHandler a TypedContent
+wrongEmailOrPasswordRedirect email =
+  redirectWithError (loginR email) "Wrong email or password"
 
 invalidCsrfMessage :: Text
 invalidCsrfMessage = "Invalid anti-forgery token. Please try again in a new browser tab or window. Contact support if the problem persists"
@@ -709,7 +710,7 @@ loginTemplateDef toParent mErr = [whamlet|
     <div class="alert">#{err}
 
   <h1>Sign in
-  <form method="post" action="@{toParent loginR}">
+  <form method="post" action="@{toParent $ loginR Nothing}">
     ^{csrfTokenTemplate}
     <fieldset>
       <label for="email">Email
@@ -1048,5 +1049,5 @@ registerTemplateDef toParent mErr = [whamlet|
           autofocus
           required>
       <button type="submit">Register
-      <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
+      <p>Already have an account? <a href="@{toParent $ loginR Nothing}">Sign in</a>.
 |]
