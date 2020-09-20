@@ -1,14 +1,19 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Yesod.Auth.Simple.Types where
 
-import           ClassyPrelude
-import           Data.Aeson
-import           Database.Persist.Sql   (PersistField, PersistFieldSql,
-                                         PersistValue (PersistText),
-                                         SqlType (SqlString), fromPersistValue,
-                                         sqlType, toPersistValue)
+import ClassyPrelude
+import Data.Aeson
+import Database.Persist.Sql
+       ( PersistField
+       , PersistFieldSql
+       , PersistValue(PersistText)
+       , SqlType(SqlString)
+       , fromPersistValue
+       , sqlType
+       , toPersistValue
+       )
 import qualified Text.Password.Strength as PW
 
 newtype PasswordReq = PasswordReq { unPasswordReq :: Text }

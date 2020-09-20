@@ -1,29 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module TestImport
   ( module TestImport
   , module X
   ) where
 
-import           ClassyPrelude           as X hiding (Handler, delete, deleteBy)
-import           ExampleApp              as X
-import           Test.Hspec              as X
-import           Yesod.Test              as X
-
-import           Control.Monad           (when)
-import           Control.Monad.Logger    (runLoggingT)
-import           Database.Persist        as X hiding (get)
-import           Database.Persist.Sql    (SqlPersistM, runMigration,
-                                          runSqlPersistMPool, runSqlPool)
-import           Database.Persist.Sqlite (createSqlitePool)
-import           System.Directory
-import           System.Log.FastLogger   (newStdoutLoggerSet)
-import           Yesod                   hiding (get)
-import           Yesod.Auth.Simple       as X
-import           Yesod.Core              as X
-import           Yesod.Core.Unsafe       (fakeHandlerGetLogger)
-import           Yesod.Default.Config2   (makeYesodLogger)
+import ClassyPrelude as X hiding (Handler, delete, deleteBy)
+import Control.Monad.Logger (runLoggingT)
+import Database.Persist as X hiding (get)
+import Database.Persist.Sql
+       (SqlPersistM, runMigration, runSqlPersistMPool, runSqlPool)
+import Database.Persist.Sqlite (createSqlitePool)
+import ExampleApp as X
+import System.Directory
+import System.Log.FastLogger (newStdoutLoggerSet)
+import Test.Hspec as X
+import Yesod hiding (get)
+import Yesod.Auth.Simple as X
+import Yesod.Core as X
+import Yesod.Core.Unsafe (fakeHandlerGetLogger)
+import Yesod.Default.Config2 (makeYesodLogger)
+import Yesod.Test as X
 
 withApp :: SpecWith (TestApp App) -> Spec
 withApp = before $ do

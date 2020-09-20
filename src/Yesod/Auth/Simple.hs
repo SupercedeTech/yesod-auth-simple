@@ -76,16 +76,12 @@ import Crypto.Random (getRandomBytes)
 import Crypto.Scrypt (EncryptedPass(..), Pass(..), encryptPassIO', verifyPass')
 import Data.Aeson
 import qualified Data.ByteArray as ByteArray
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64Url
 import Data.Function ((&))
-import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8', decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
-import Data.Time (Day, UTCTime(..), getCurrentTime)
-import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Network.HTTP.Types (badRequest400, tooManyRequests429)
 import Network.Wai (responseBuilder)

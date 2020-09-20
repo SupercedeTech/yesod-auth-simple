@@ -2,8 +2,8 @@
 
 module Yesod.Auth.Simple.TypesSpec (spec) where
 
-import           Data.Aeson (encode)
-import           TestImport
+import Data.Aeson (encode)
+import TestImport
 
 spec :: Spec
 spec =
