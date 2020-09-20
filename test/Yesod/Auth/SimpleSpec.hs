@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Yesod.Auth.SimpleSpec (spec) where
 
-import qualified Data.Text  as T
-import           TestImport
+import qualified Data.Text as T
+import TestImport
 
 spec :: Spec
 spec = withApp $ do

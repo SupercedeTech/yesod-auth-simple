@@ -1,12 +1,12 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE QuasiQuotes         #-}
-{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {- | A Yesod plugin for traditional email/password authentication
 
@@ -68,39 +68,35 @@ module Yesod.Auth.Simple
   , encryptPassIO'
   ) where
 
-import           ClassyPrelude
-import           Crypto.Hash                   (Digest, SHA256)
-import qualified Crypto.Hash                   as C
-import           Crypto.Random                 (getRandomBytes)
-import           Crypto.Scrypt                 (EncryptedPass (..), Pass (..),
-                                                encryptPassIO', verifyPass')
-import           Data.Aeson
-import qualified Data.ByteArray                as ByteArray
-import           Data.ByteString               (ByteString)
-import qualified Data.ByteString.Base64        as B64
-import qualified Data.ByteString.Base64.URL    as B64Url
-import           Data.Function                 ((&))
-import           Data.Text                     (Text)
-import qualified Data.Text                     as T
-import           Data.Text.Encoding            (decodeUtf8', decodeUtf8With)
-import           Data.Text.Encoding.Error      (lenientDecode)
-import           Data.Time                     (Day, UTCTime (..),
-                                                getCurrentTime)
-import           Data.Vector                   (Vector)
-import qualified Data.Vector                   as Vec
-import           Network.HTTP.Types            (badRequest400,
-                                                tooManyRequests429)
-import           Network.Wai                   (responseBuilder)
-import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
-import           Text.Email.Validate           (canonicalizeEmail)
-import qualified Text.Password.Strength        as PW
+import ClassyPrelude
+import Crypto.Hash (Digest, SHA256)
+import qualified Crypto.Hash as C
+import Crypto.Random (getRandomBytes)
+import Crypto.Scrypt (EncryptedPass(..), Pass(..), encryptPassIO', verifyPass')
+import Data.Aeson
+import qualified Data.ByteArray as ByteArray
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Base64.URL as B64Url
+import Data.Function ((&))
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8', decodeUtf8With)
+import Data.Text.Encoding.Error (lenientDecode)
+import Data.Time (Day, UTCTime(..), getCurrentTime)
+import Data.Vector (Vector)
+import qualified Data.Vector as Vec
+import Network.HTTP.Types (badRequest400, tooManyRequests429)
+import Network.Wai (responseBuilder)
+import Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
+import Text.Email.Validate (canonicalizeEmail)
+import qualified Text.Password.Strength as PW
 import qualified Text.Password.Strength.Config as PW
-import           Yesod.Auth
-import           Yesod.Auth.Simple.Types
-import           Yesod.Core
-import           Yesod.Core.Json               as J
-import           Yesod.Form                    (iopt, ireq, runInputPost,
-                                                textField)
+import Yesod.Auth
+import Yesod.Auth.Simple.Types
+import Yesod.Core
+import Yesod.Core.Json as J
+import Yesod.Form (iopt, ireq, runInputPost, textField)
 
 minPasswordLength :: Int
 minPasswordLength = 8 -- min length required in NIST SP 800-63B
@@ -159,7 +155,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
-  shouldPreventLoginAttempt :: Maybe (AuthSimpleId a) -> AuthHandler a (Maybe UTCTime)
+  shouldPreventLoginAttempt ::
+    Maybe (AuthSimpleId a) -> AuthHandler a (Maybe UTCTime)
   shouldPreventLoginAttempt _ = pure Nothing
 
   -- | Perform an action on a login attempt.
@@ -202,7 +199,8 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
   passwordFieldTemplate tp =
     case passwordCheck @a of
-      Zxcvbn minStren extraWords' -> passwordFieldTemplateZxcvbn tp minStren extraWords'
+      Zxcvbn minStren extraWords' ->
+        passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
   loginTemplate
@@ -215,10 +213,18 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   registerTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
   registerTemplate = registerTemplateDef
 
-  resetPasswordTemplate :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+  resetPasswordTemplate ::
+       (AuthRoute -> Route a)
+    -> Maybe Text
+    -> WidgetFor a ()
   resetPasswordTemplate = resetPasswordTemplateDef
 
-  confirmTemplate :: (AuthRoute -> Route a) -> Route a -> Email -> Maybe Text -> WidgetFor a ()
+  confirmTemplate ::
+       (AuthRoute -> Route a)
+    -> Route a
+    -> Email
+    -> Maybe Text
+    -> WidgetFor a ()
   confirmTemplate = confirmTempateDef
 
   confirmationEmailSentTemplate :: WidgetFor a ()
@@ -239,7 +245,11 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   tooManyLoginAttemptsTemplate :: UTCTime -> WidgetFor a ()
   tooManyLoginAttemptsTemplate = tooManyLoginAttemptsTemplateDef
 
-  setPasswordTemplate :: (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
+  setPasswordTemplate ::
+       (AuthRoute -> Route a)
+    -> Route a
+    -> Maybe Text
+    -> WidgetFor a ()
   setPasswordTemplate = setPasswordTemplateDef
 
   -- | Run after a user successfully changing the user's
@@ -261,26 +271,28 @@ loginHandlerRedirect :: (Route Auth -> Route a) -> WidgetFor a ()
 loginHandlerRedirect tm = redirectTemplate $ tm loginR
 
 dispatch :: YesodAuthSimple a => Text -> [Text] -> AuthHandler a TypedContent
-dispatch "GET"  ["register"] = getRegisterR >>= sendResponse
-dispatch "POST" ["register"] = postRegisterR >>= sendResponse
-dispatch "GET"  ["confirm", token] = getConfirmTokenR token >>= sendResponse
-dispatch "GET"  ["confirm"] = getConfirmR >>= sendResponse
-dispatch "POST" ["confirm"] = postConfirmR >>= sendResponse
-dispatch "GET"  ["confirmation-email-sent"] = getConfirmationEmailSentR >>= sendResponse
-dispatch "GET"  ["register-success"] = getRegisterSuccessR >>= sendResponse
-dispatch "GET"  ["user-exists"] = getUserExistsR >>= sendResponse
-dispatch "GET"  ["login"] = getLoginR >>= sendResponse
-dispatch "POST" ["login"] = postLoginR >>= sendResponse
-dispatch "GET"  ["set-password", token] = getSetPasswordTokenR token >>= sendResponse
-dispatch "GET"  ["set-password"] = getSetPasswordR >>= sendResponse
-dispatch "POST" ["set-password"] = postSetPasswordR >>= sendResponse
-dispatch "GET"  ["reset-password"] = getResetPasswordR >>= sendResponse
-dispatch "POST" ["reset-password"] = postResetPasswordR >>= sendResponse
-dispatch "GET"  ["reset-password-email-sent"] = getResetPasswordEmailSentR >>= sendResponse
--- NB: We use a POST instead of GET so that we don't send the password
--- in the URL query string
-dispatch "POST" ["password-strength"] = postPasswordStrengthR >>= sendResponse
-dispatch _ _ = notFound
+dispatch method path = case (method, path) of
+  ("GET",  ["register"])                  -> sr getRegisterR
+  ("POST", ["register"])                  -> sr postRegisterR
+  ("GET",  ["confirm", token])            -> sr $ getConfirmTokenR token
+  ("GET",  ["confirm"])                   -> sr getConfirmR
+  ("POST", ["confirm"])                   -> sr postConfirmR
+  ("GET",  ["confirmation-email-sent"])   -> sr getConfirmationEmailSentR
+  ("GET",  ["register-success"])          -> sr getRegisterSuccessR
+  ("GET",  ["user-exists"])               -> sr getUserExistsR
+  ("GET",  ["login"])                     -> sr getLoginR
+  ("POST", ["login"])                     -> sr postLoginR
+  ("GET",  ["set-password", token])       -> sr $ getSetPasswordTokenR token
+  ("GET",  ["set-password"])              -> sr getSetPasswordR
+  ("POST", ["set-password"])              -> sr postSetPasswordR
+  ("GET",  ["reset-password"])            -> sr getResetPasswordR
+  ("POST", ["reset-password"])            -> sr postResetPasswordR
+  ("GET",  ["reset-password-email-sent"]) -> sr getResetPasswordEmailSentR
+  -- NB: We use a POST instead of GET so that we don't send the password
+  -- in the URL query string
+  ("POST", ["password-strength"])         -> sr postPasswordStrengthR
+  _                                       -> notFound
+  where sr r = r >>= sendResponse
 
 getRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 getRegisterR = do
@@ -362,7 +374,9 @@ postRegisterR = do
   case mEmail of
     _ | isJust honeypot -> do
           onBotPost
-          invalidTokenHandler "An unexpected error occurred. Please try again or contact support if the problem persists"
+          invalidTokenHandler "An unexpected error occurred.\
+                              \ Please try again or contact support\
+                              \ if the problem persists."
     Just email' -> do
       tp <- getRouteToParent
       renderUrl <- getUrlRender
@@ -429,7 +443,11 @@ invalidTokenHandler msg = do
     & responseBuilder badRequest400 contentType
     & sendWaiResponse
 
-confirmHandler :: YesodAuthSimple a => Route a -> Email -> AuthHandler a TypedContent
+confirmHandler ::
+     YesodAuthSimple a
+  => Route a
+  -> Email
+  -> AuthHandler a TypedContent
 confirmHandler registerUrl email = do
   mErr <- getError
   tp <- getRouteToParent
@@ -449,7 +467,8 @@ postConfirmR = do
       password <- runInputPost $ ireq textField "password"
       createUser email (Pass . encodeUtf8 $ password)
 
-createUser :: forall m. YesodAuthSimple m => Email -> Pass -> AuthHandler m TypedContent
+createUser :: forall m. YesodAuthSimple m
+           => Email -> Pass -> AuthHandler m TypedContent
 createUser email password = do
   check <- liftIO $ strengthToEither
           <$> checkPasswordStrength (passwordCheck @m) password
@@ -501,7 +520,12 @@ postPasswordStrengthR = do
       let pass = Pass . encodeUtf8 $ password
       liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
 
-checkPassWithZxcvbn :: PW.Strength -> Vector Text -> Day -> Text -> PasswordStrength
+checkPassWithZxcvbn ::
+     PW.Strength
+  -> Vector Text
+  -> Day
+  -> Text
+  -> PasswordStrength
 checkPassWithZxcvbn minStrength' extraWords' day password =
   let conf = PW.addCustomFrequencyList extraWords' PW.en_US
       guesses = PW.score conf day password
@@ -528,7 +552,7 @@ getPWStrength (BadPassword stren _) = stren
 checkPasswordStrength :: PasswordCheck -> Pass -> IO PasswordStrength
 checkPasswordStrength check pass =
   case decodeUtf8' (getPass pass) of
-    Left _  -> pure $ BadPassword PW.Weak $ Just "Invalid characters in password"
+    Left _ -> pure $ BadPassword PW.Weak $ Just "Invalid characters in password"
     Right password ->
       if not satisfiesMaxLen
       then pure . BadPassword PW.Weak . Just
@@ -635,7 +659,10 @@ postLoginR = do
           onLoginAttempt Nothing False
           wrongEmailOrPasswordRedirect
 
-tooManyLoginAttemptsHandler :: YesodAuthSimple a => UTCTime -> AuthHandler a TypedContent
+tooManyLoginAttemptsHandler ::
+     YesodAuthSimple a
+  => UTCTime
+  -> AuthHandler a TypedContent
 tooManyLoginAttemptsHandler expires = do
   html <- authLayout $ do
     setTitle "Too many login attempts"
@@ -660,13 +687,20 @@ wrongEmailOrPasswordRedirect =
   redirectWithError loginR "Wrong email or password"
 
 invalidCsrfMessage :: Text
-invalidCsrfMessage = "Invalid anti-forgery token. Please try again in a new browser tab or window. Contact support if the problem persists"
+invalidCsrfMessage =
+  "Invalid anti-forgery token. \
+  \Please try again in a new browser tab or window. \
+  \Contact support if the problem persists."
 
 invalidRegistrationMessage :: Text
-invalidRegistrationMessage = "Invalid registration link. Please try registering again and contact support if the problem persists"
+invalidRegistrationMessage =
+  "Invalid registration link. \
+  \Please try registering again and contact support if the problem persists"
 
 invalidTokenMessage :: Text
-invalidTokenMessage = "Invalid password reset token. Please try again and contact support if the problem persists"
+invalidTokenMessage =
+  "Invalid password reset token. \
+  \Please try again and contact support if the problem persists."
 
 getSetPasswordTokenR :: Text -> AuthHandler a TypedContent
 getSetPasswordTokenR token = do
@@ -745,7 +779,11 @@ csrfTokenTemplate = do
       <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
   |]
 
-loginTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> Maybe Text -> WidgetFor a ()
+loginTemplateDef ::
+     (AuthRoute -> Route a)
+  -> Maybe Text
+  -> Maybe Text
+  -> WidgetFor a ()
 loginTemplateDef toParent mErr mEmail = [whamlet|
   $newline never
   $maybe err <- mErr
@@ -781,7 +819,11 @@ passwordFieldTemplateBasic = [whamlet|
 zxcvbnJsUrl :: Text
 zxcvbnJsUrl = "https://cdn.jsdelivr.net/npm/zxcvbn@4.4.2/dist/zxcvbn.js"
 
-passwordFieldTemplateZxcvbn :: (AuthRoute -> Route a) -> PW.Strength -> Vector Text -> WidgetFor a ()
+passwordFieldTemplateZxcvbn ::
+     (AuthRoute -> Route a)
+  -> PW.Strength
+  -> Vector Text
+  -> WidgetFor a ()
 passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
   let extraWordsStr = T.unwords . toList $ extraWords'
       blankPasswordScore = BadPassword PW.Risky Nothing
@@ -957,7 +999,12 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
       document.getElementById("password").addEventListener("input", yas_onPasswordChange);
     |]
 
-setPasswordTemplateDef :: forall a. YesodAuthSimple a => (AuthRoute -> Route a) -> Route a -> Maybe Text -> WidgetFor a ()
+setPasswordTemplateDef ::
+     forall a. YesodAuthSimple a
+  => (AuthRoute -> Route a)
+  -> Route a
+  -> Maybe Text
+  -> WidgetFor a ()
 setPasswordTemplateDef toParent url mErr =
   let pwField = passwordFieldTemplate @a toParent in
     [whamlet|
@@ -1024,7 +1071,13 @@ confirmationEmailSentTemplateDef = [whamlet|
       Click on the link in the email to complete the registration.
 |]
 
-confirmTempateDef :: forall a. YesodAuthSimple a => (AuthRoute -> Route a) -> Route a -> Email -> Maybe Text -> WidgetFor a ()
+confirmTempateDef ::
+     forall a. YesodAuthSimple a
+  => (AuthRoute -> Route a)
+  -> Route a
+  -> Email
+  -> Maybe Text
+  -> WidgetFor a ()
 confirmTempateDef toParent confirmUrl (Email email) mErr =
   let pwField = passwordFieldTemplate @a toParent in
   [whamlet|
@@ -1041,7 +1094,10 @@ confirmTempateDef toParent confirmUrl (Email email) mErr =
         <button type="submit">Set Password
   |]
 
-resetPasswordTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
+resetPasswordTemplateDef ::
+     (AuthRoute -> Route a)
+  -> Maybe Text
+  -> WidgetFor a ()
 resetPasswordTemplateDef toParent mErr = [whamlet|
   $newline never
   $maybe err <- mErr
