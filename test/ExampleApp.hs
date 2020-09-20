@@ -1,26 +1,26 @@
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE InstanceSigs               #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE QuasiQuotes                #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module ExampleApp where
 
-import           ClassyPrelude.Yesod
-import           Data.Coerce          (coerce)
-import qualified Data.Vector          as Vec
-import           Database.Persist.Sql
-import           Yesod.Auth
-import           Yesod.Auth.Simple
-import           Yesod.Core.Types     (Logger)
+import ClassyPrelude.Yesod
+import Data.Coerce (coerce)
+import qualified Data.Vector as Vec
+import Database.Persist.Sql
+import Yesod.Auth
+import Yesod.Auth.Simple
+import Yesod.Core.Types (Logger)
 
 data App = App
   { appLogger   :: Logger
@@ -64,11 +64,23 @@ instance YesodAuth App where
   getAuthId = return . fromPathPiece . credsIdent
   maybeAuthId = defaultMaybeAuthId
 
+getTestToken ::
+  ( PersistStoreWrite (YesodPersistBackend (HandlerSite m))
+  , YesodPersist (HandlerSite m)
+  , MonadHandler m
+  , BaseBackend (YesodPersistBackend (HandlerSite m)) ~ SqlBackend)
+  => Email -> m Text
 getTestToken email = do
   t <- liftIO genToken
   storeToken email $ hashAndEncodeToken t
   pure $ encodeToken t
 
+storeToken ::
+  ( PersistStoreWrite (YesodPersistBackend (HandlerSite f))
+  , YesodPersist (HandlerSite f)
+  , MonadHandler f
+  , BaseBackend (YesodPersistBackend (HandlerSite f)) ~ SqlBackend)
+  => Email -> Text -> f ()
 storeToken e t = void . liftHandler . runDB . insert $ Token e t
 
 instance YesodAuthSimple App where
