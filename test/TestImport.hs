@@ -55,3 +55,7 @@ removeIfExists :: FilePath -> IO ()
 removeIfExists f = do
   fileExists <- doesFileExist f
   when fileExists (removeFile f)
+
+-- | Follow a redirect and discard the result
+followRedirect_ :: Yesod a => YesodExample a ()
+followRedirect_ = void followRedirect

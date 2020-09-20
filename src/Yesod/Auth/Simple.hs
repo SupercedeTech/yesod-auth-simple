@@ -346,14 +346,14 @@ decodeToken :: Text -> ByteString
 decodeToken = B64Url.decodeLenient . encodeUtf8
 
 verifyRegisterTokenFromSession :: YesodAuthSimple a
-                               => AuthHandler a (Maybe Email)
-verifyRegisterTokenFromSession = do
+  => AuthHandler a (Maybe Email)
+verifyRegisterTokenFromSession =
   maybe (pure Nothing) matchRegistrationToken
     =<< lookupSession passwordTokenSessionKey
 
 verifyPasswordTokenFromSession :: YesodAuthSimple a
                                => AuthHandler a (Maybe (AuthSimpleId a))
-verifyPasswordTokenFromSession = do
+verifyPasswordTokenFromSession =
   maybe (pure Nothing) matchPasswordToken
     =<< lookupSession passwordTokenSessionKey
 
@@ -393,19 +393,14 @@ postRegisterR = do
 postResetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 postResetPasswordR = do
   clearError
+  ur    <- getUrlRender
+  token <- liftIO genToken
   email <- runInputPost $ ireq textField "email"
-  mUid  <- getUserId $ Email $ normalizeEmail email
-  tp <- getRouteToParent
-  case mUid of
-    Just _ -> do
-      renderUrl <- getUrlRender
-      rawToken <- liftIO genToken
-      let url = renderUrl . tp . setPasswordTokenR $ encodeToken rawToken
-          hashed = hashAndEncodeToken rawToken
-      sendResetPasswordEmail (Email email) url hashed
-      redirect $ tp resetPasswordEmailSentR
-    Nothing -> do
-      redirect $ tp resetPasswordEmailSentR
+  tp    <- getRouteToParent
+  let url = ur . tp . setPasswordTokenR $ encodeToken token
+      hashed = hashAndEncodeToken token
+  sendResetPasswordEmail (Email email) url hashed
+  redirect $ tp resetPasswordEmailSentR
 
 getConfirmTokenR :: Text -> AuthHandler a TypedContent
 getConfirmTokenR token = do
@@ -476,12 +471,11 @@ createUser email password = do
     Left msg -> do
       setError msg
       tp <- getRouteToParent
-      redirect $ tp $ confirmR
+      redirect $ tp confirmR
     Right _ -> do
       markRegisterTokenAsUsed $ Just email
       encrypted <- liftIO $ encryptPassIO' password
-      mUid      <- insertUser email encrypted
-      case mUid of
+      insertUser email encrypted >>= \case
         Just uid -> do
           let creds = Creds "simple" (toPathPiece uid) []
           setCreds False creds
@@ -828,7 +822,6 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
   let extraWordsStr = T.unwords . toList $ extraWords'
       blankPasswordScore = BadPassword PW.Risky Nothing
   mCsrfToken <- reqToken <$> getRequest
-  let csrfToken = maybe "no-csrf-token" id mCsrfToken
   addScriptRemote zxcvbnJsUrl
   toWidget
     [hamlet|
@@ -973,7 +966,7 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
         };
         req.open("POST", "@{toParent passwordStrengthR}", true);
         req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-        req.send(#{defaultCsrfParamName} + "=" + #{csrfToken}
+        req.send(#{defaultCsrfParamName} + "=" + #{fromMaybe "no-csrf-token" mCsrfToken}
                  + "&password=" + encodeURIComponent(password));
         yas_currentReq += 1;
       }

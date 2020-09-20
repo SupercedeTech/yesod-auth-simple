@@ -100,8 +100,8 @@ instance YesodAuthSimple App where
   afterPasswordRoute = error "forced afterPasswordRoute"
   updateUserPassword = error "forced updateUserPassword"
 
-  sendVerifyEmail email _ hashed = storeToken email hashed
-  sendResetPasswordEmail email _ hashed = storeToken email hashed
+  sendVerifyEmail email _ = storeToken email
+  sendResetPasswordEmail email _ = storeToken email
 
   matchRegistrationToken hashed = liftHandler . runDB $ do
     ents <- selectList [TokenHashed ==. hashed] [LimitTo 1]
