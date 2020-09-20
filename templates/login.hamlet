@@ -1,0 +1,21 @@
+$newline never
+$maybe err <- mErr
+  <div class="alert">#{err}
+
+<h1>Sign in
+<form method="post" action="@{toParent loginR}">
+  ^{csrfTokenTemplate}
+  <fieldset>
+    <label for="email">Email
+    $maybe email <- mEmail
+      <input type="email" name="email" value=#{email} required>
+    $nothing
+      <input type="email" name="email" autofocus required>
+  <fieldset>
+    <label for="password">Password
+    <input type="password" name="password" required :isJust mEmail:autofocus>
+  <button type="submit">Sign in
+  <p>
+    <a href="@{toParent resetPasswordR}">Forgot password?
+  <p class="need-to-register">
+    Need an account? <a href="@{toParent registerR}">Register</a>.

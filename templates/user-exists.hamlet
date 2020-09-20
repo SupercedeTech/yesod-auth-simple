@@ -1,0 +1,5 @@
+$newline never
+<.user-exists>
+  <h1>Failed to create account
+  <p>User already exists
+

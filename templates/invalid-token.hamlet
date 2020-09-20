@@ -1,0 +1,5 @@
+$newline never
+<.invalid-token>
+  <h1>Invalid key
+  <p>#{msg}
+

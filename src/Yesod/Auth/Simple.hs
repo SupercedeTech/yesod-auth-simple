@@ -5,6 +5,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -43,7 +44,7 @@ module Yesod.Auth.Simple
   , registerSuccessTemplateDef
   , resetPasswordEmailSentTemplateDef
   , confirmationEmailSentTemplateDef
-  , confirmTempateDef
+  , confirmTemplateDef
   , resetPasswordTemplateDef
   , registerTemplateDef
   , passwordFieldTemplateBasic
@@ -90,6 +91,9 @@ import Network.HTTP.Types (badRequest400, tooManyRequests429)
 import Network.Wai (responseBuilder)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 import Text.Email.Validate (canonicalizeEmail)
+import Text.Hamlet (hamletFile)
+import Text.Julius (juliusFile)
+import Text.Lucius (luciusFile)
 import qualified Text.Password.Strength as PW
 import qualified Text.Password.Strength.Config as PW
 import Yesod.Auth
@@ -225,7 +229,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
     -> Email
     -> Maybe Text
     -> WidgetFor a ()
-  confirmTemplate = confirmTempateDef
+  confirmTemplate = confirmTemplateDef
 
   confirmationEmailSentTemplate :: WidgetFor a ()
   confirmationEmailSentTemplate = confirmationEmailSentTemplateDef
@@ -755,60 +759,24 @@ setPass uid password = do
 
 redirectTemplate :: Route a -> WidgetFor a ()
 redirectTemplate destUrl = do
-  toWidget
-    [whamlet|
-      $newline never
-      <p>Content has moved, click
-        <a href="@{destUrl}">here
-    |]
-  toWidget
-    [julius|window.location = "@{destUrl}";|]
+  toWidget $(whamletFile "templates/redirect.hamlet")
+  toWidget [julius|window.location = "@{destUrl}";|]
 
 csrfTokenTemplate :: WidgetFor a ()
 csrfTokenTemplate = do
   request <- getRequest
-  [whamlet|
-    $newline never
-    $maybe antiCsrfToken <- reqToken request
-      <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
-  |]
+  $(whamletFile "templates/csrf-token.hamlet")
 
 loginTemplateDef ::
      (AuthRoute -> Route a)
   -> Maybe Text
   -> Maybe Text
   -> WidgetFor a ()
-loginTemplateDef toParent mErr mEmail = [whamlet|
-  $newline never
-  $maybe err <- mErr
-    <div class="alert">#{err}
-
-  <h1>Sign in
-  <form method="post" action="@{toParent loginR}">
-    ^{csrfTokenTemplate}
-    <fieldset>
-      <label for="email">Email
-      $maybe email <- mEmail
-        <input type="email" name="email" value=#{email} required>
-      $nothing
-        <input type="email" name="email" autofocus required>
-    <fieldset>
-      <label for="password">Password
-      <input type="password" name="password" required :isJust mEmail:autofocus>
-    <button type="submit">Sign in
-    <p>
-      <a href="@{toParent resetPasswordR}">Forgot password?
-    <p class="need-to-register">
-      Need an account? <a href="@{toParent registerR}">Register</a>.
-  |]
+loginTemplateDef toParent mErr mEmail = $(whamletFile "templates/login.hamlet")
 
 passwordFieldTemplateBasic :: WidgetFor a ()
-passwordFieldTemplateBasic = [whamlet|
-  $newline never
-  <fieldset>
-    <label for="password">Password
-    <input type="password" name="password" autofocus required>
-  |]
+passwordFieldTemplateBasic =
+  $(whamletFile "templates/password-field-basic.hamlet")
 
 zxcvbnJsUrl :: Text
 zxcvbnJsUrl = "https://cdn.jsdelivr.net/npm/zxcvbn@4.4.2/dist/zxcvbn.js"
@@ -823,174 +791,9 @@ passwordFieldTemplateZxcvbn toParent minStren extraWords' = do
       blankPasswordScore = BadPassword PW.Risky Nothing
   mCsrfToken <- reqToken <$> getRequest
   addScriptRemote zxcvbnJsUrl
-  toWidget
-    [hamlet|
-      $newline never
-      <fieldset>
-        <label for="password">Password
-        <input#password type="password" name="password" autofocus required>
-        <#yas--extra-words data-extra-words="#{extraWordsStr}">
-        <#yas--password-feedback>
-          <.yas--password-meter-container>
-            <.yas--password-meter.yas--strength-init>
-          <.yas--password-errors>
-            <p.yas--password-warning>
-            <.yas--password-suggestions>
-     |]
-  toWidget
-    [lucius|
-      .yas--extra-words { display: none; }
-      .yas--password-meter-container {
-        height: 5px;
-        background-color: #C7C7C7;
-        .yas--password-meter {
-          height: 100%;
-          transition: background-color 1s, margin-right 1s;
-        }
-        .yas--password-meter.yas--strength-init {
-          margin-right: 100%;
-        }
-        .yas--password-meter.yas--strength-0 {
-          background-color: #ff0000;
-          margin-right: 90%;
-        }
-        .yas--password-meter.yas--strength-1 {
-          background-color: #ff0000;
-          margin-right: 75%;
-        }
-        .yas--password-meter.yas--strength-2 {
-          background-color: #ffa500;
-          margin-right: 50%;
-        }
-        .yas--password-meter.yas--strength-3 {
-          background-color: #008000;
-          margin-right: 25%;
-        }
-        .yas--password-meter.yas--strength-4 {
-          background-color: #008000;
-          margin-right: 0%;
-        }
-       }
-       .yas--password-suggestions ul {
-         margin-left: 2em;
-         margin-bottom: 0;
-         list-style: disc;
-         font-size: 90%;
-       }
-    |]
-  toWidget
-    [julius|
-      var yas__extraWordsEl = document.getElementById("yas__extra-words");
-      var yas__extraWords = [];
-      if (yas__extraWordsEl) {
-        var str = yas__extraWordsEl.getAttribute("data-extra-words");
-        if (Boolean(str)) { yas__extraWords = str.split(" "); }
-      }
-
-      var yas__passwordFeedback = document.getElementById("yas--password-feedback");
-      var yas__passwordMeter = yas__passwordFeedback.querySelector(".yas--password-meter");
-      var yas__passwordErrors = yas__passwordFeedback.querySelector(".yas--password-errors");
-
-      function yas_showError() {
-        var warningEl = yas__passwordErrors.querySelector(".yas--password-warning");
-        warningEl.appendChild(document.createTextNode("Error requesting password strength"));
-      }
-
-      function yas_updateFeedback (password, strength) {
-        var gotScore = typeof strength.score === "number";
-        var score, feedback, jsResult;
-        if (!gotScore || strength.score <= 2 || strength.score < #{toJSON $ fromEnum minStren}) {
-          jsResult = zxcvbn(password, yas__extraWords);
-          feedback = jsResult.feedback;
-        }
-
-        if (gotScore) { score = strength.score; }
-        else {          score = jsResult.score; }
-
-        yas__passwordMeter.classList.add("yas--strength-" + score);
-        yas__passwordMeter.classList.remove("yas--strength-init");
-        for (var i=0; i<5; i++) {
-          if (i !== score) {
-            yas__passwordMeter.classList.remove("yas--strength-" + i);
-          }
-        }
-
-        var warningEl = yas__passwordErrors.querySelector(".yas--password-warning");
-        while (warningEl.firstChild) { warningEl.removeChild(warningEl.firstChild); }
-
-        var tips = yas__passwordErrors.querySelector(".yas--password-suggestions");
-        while (tips && tips.firstChild) { tips.removeChild(tips.firstChild); }
-
-        if (Boolean(password) && score < #{toJSON $ fromEnum minStren}) {
-          var warning;
-          if (Boolean(strength.error)) {
-            warning = strength.error;
-          } else {
-            warning = "The password is not strong enough";
-          }
-          if (Boolean(feedback.warning)) {
-            warning = warning + ". " + feedback.warning;
-          }
-          warningEl.appendChild(document.createTextNode(warning));
-
-          if (feedback.suggestions.length > 0) {
-            var suggestionList = document.createElement("ul");
-            for (var i=0; i<feedback.suggestions.length; i++) {
-              var li = document.createElement("li");
-              var txt = document.createTextNode(feedback.suggestions[i]);
-              li.classList.add("yas--suggestion");
-              li.appendChild(txt);
-              suggestionList.appendChild(li);
-            }
-            tips.appendChild(suggestionList);
-          }
-        }
-      }
-
-      var yas_currentReq = 0;
-      function yas_getPasswordStrength(password) {
-        var req = new XMLHttpRequest();
-        var reqNum = yas_currentReq + 1;
-        req.onreadystatechange = function(resp) {
-          if (req.readyState === XMLHttpRequest.DONE) {
-            if (req.status === 200) {
-              var resp = JSON.parse(req.responseText);
-              if (reqNum <= yas_currentReq) {
-                yas_updateFeedback(password, resp);
-              }
-            } else {
-              yas_updateFeedback("", #{toJSON blankPasswordScore});
-              yas_showError();
-            }
-          }
-        };
-        req.open("POST", "@{toParent passwordStrengthR}", true);
-        req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-        req.send(#{defaultCsrfParamName} + "=" + #{fromMaybe "no-csrf-token" mCsrfToken}
-                 + "&password=" + encodeURIComponent(password));
-        yas_currentReq += 1;
-      }
-
-      function yas_debounce(delay, fn) {
-        var timeout;
-        return function () {
-          if (timeout) { clearTimeout(timeout); }
-          timeout = setTimeout(fn.apply.bind(fn, this, arguments), delay);
-        };
-      }
-
-      var yas_getPasswordStrengthDeb = yas_debounce(200, yas_getPasswordStrength);
-
-      function yas_onPasswordChange(e) {
-        if (Boolean(e.target.value) && e.target.value.length < #{toJSON maxPasswordLength}) {
-            yas_getPasswordStrengthDeb(e.target.value);
-        } else if (!Boolean(e.target.value)) {
-          yas_updateFeedback("", #{toJSON blankPasswordScore});
-        }
-      }
-
-      document.getElementById("password").addEventListener("input", yas_onPasswordChange);
-    |]
+  toWidget $(hamletFile "templates/password-field-zxcvbn.hamlet")
+  toWidget $(luciusFile "templates/password-field-zxcvbn.lucius")
+  toWidget $(juliusFile "templates/password-field-zxcvbn.julius")
 
 setPasswordTemplateDef ::
      forall a. YesodAuthSimple a
@@ -999,149 +802,56 @@ setPasswordTemplateDef ::
   -> Maybe Text
   -> WidgetFor a ()
 setPasswordTemplateDef toParent url mErr =
-  let pwField = passwordFieldTemplate @a toParent in
-    [whamlet|
-      $newline never
-      $maybe err <- mErr
-        <div class="alert">#{err}
-
-      <h1>Set new password
-      <form method="post" action="@{url}">
-        ^{csrfTokenTemplate}
-        ^{pwField}
-        <button type="submit">Save
-    |]
+  let pwField = passwordFieldTemplate @a toParent
+   in $(whamletFile "templates/set-password.hamlet")
 
 invalidTokenTemplateDef :: Text -> WidgetFor a ()
-invalidTokenTemplateDef msg = [whamlet|
-  $newline never
-  <.invalid-token>
-    <h1>Invalid key
-    <p>#{msg}
-|]
+invalidTokenTemplateDef msg = $(whamletFile "templates/invalid-token.hamlet")
 
 tooManyLoginAttemptsTemplateDef :: UTCTime -> WidgetFor a ()
-tooManyLoginAttemptsTemplateDef expires = do
+tooManyLoginAttemptsTemplateDef expires =
   let formatted = formatTime defaultTimeLocale "%d/%m/%_Y %T" expires
-  [whamlet|
-    $newline never
-    <.too-many-attempts>
-      <h1>Too many login attempts
-      <p>You have been locked out from your account until #{formatted} GMT</p>
-  |]
+   in $(whamletFile "templates/too-many-login-attempts.hamlet")
 
 userExistsTemplateDef :: WidgetFor a ()
-userExistsTemplateDef = [whamlet|
-  $newline never
-  <.user-exists>
-    <h1>Failed to create account
-    <p>User already exists
-|]
+userExistsTemplateDef = $(whamletFile "templates/user-exists.hamlet")
 
 registerSuccessTemplateDef :: WidgetFor a ()
-registerSuccessTemplateDef = [whamlet|
-  $newline never
-  <.register-success>
-    <h1>Account created!
-|]
+registerSuccessTemplateDef = $(whamletFile "templates/register-success.hamlet")
 
 resetPasswordEmailSentTemplateDef :: WidgetFor a ()
-resetPasswordEmailSentTemplateDef = [whamlet|
-  $newline never
-  <.password-reset-email-sent>
-    <h1>Email Sent!
-    <p>An email has been sent to your address provided that a corresponding user account exists in our system.
-    <p>Click on the link in the email to complete the password reset.
-|]
+resetPasswordEmailSentTemplateDef =
+  $(whamletFile "templates/reset-password-email-sent.hamlet")
 
 confirmationEmailSentTemplateDef :: WidgetFor a ()
-confirmationEmailSentTemplateDef = [whamlet|
-  $newline never
-  <.confirmation-email-sent">
-    <h1>Email sent
-    <p>
-      A confirmation email has been sent to your address.
-      Click on the link in the email to complete the registration.
-|]
+confirmationEmailSentTemplateDef =
+  $(whamletFile "templates/confirmation-email-sent.hamlet")
 
-confirmTempateDef ::
+confirmTemplateDef ::
      forall a. YesodAuthSimple a
   => (AuthRoute -> Route a)
   -> Route a
   -> Email
   -> Maybe Text
   -> WidgetFor a ()
-confirmTempateDef toParent confirmUrl (Email email) mErr =
-  let pwField = passwordFieldTemplate @a toParent in
-  [whamlet|
-    $newline never
-    $maybe err <- mErr
-      <div class="alert">#{err}
-
-    <.confirm>
-      <h1>Set Your Password
-      <form method="post" action="@{confirmUrl}">
-        ^{csrfTokenTemplate}
-        <p>#{email}
-        ^{pwField}
-        <button type="submit">Set Password
-  |]
+confirmTemplateDef toParent confirmUrl (Email email) mErr =
+  let pwField = passwordFieldTemplate @a toParent
+   in $(whamletFile "templates/confirm.hamlet")
 
 resetPasswordTemplateDef ::
      (AuthRoute -> Route a)
   -> Maybe Text
   -> WidgetFor a ()
-resetPasswordTemplateDef toParent mErr = [whamlet|
-  $newline never
-  $maybe err <- mErr
-    <div class="alert">#{err}
-
-  <.reset-password>
-    <h1>Reset Password
-    <p>Did you forget your password? No problem.
-    <p>Give us your email address, and we'll send you reset instructions.
-    <form method="post" action="@{toParent resetPasswordR}">
-      <fieldset>
-        <label for="email">Email
-        <input type="email" name="email" autofocus required>
-      <button type="submit">Reset
-|]
+resetPasswordTemplateDef toParent mErr =
+  $(whamletFile "templates/reset-password.hamlet")
 
 honeypotName :: Text
 honeypotName = "yas--password-backup"
 
 honeypotFieldTemplate :: WidgetFor a ()
 honeypotFieldTemplate = do
-  toWidget
-    [lucius|
-      .#{honeypotName} { display:none !important; }
-    |]
-  toWidget
-    [hamlet|
-      $newline never
-      <fieldset class="#{honeypotName}">
-        <label for="#{honeypotName}">
-        <input type="text" name="#{honeypotName}" tabindex="none" autocomplete="off">
-    |]
+  toWidget [lucius| .#{honeypotName} { display:none !important; } |]
+  toWidget $(hamletFile "templates/honeypot-field.hamlet")
 
 registerTemplateDef :: (AuthRoute -> Route a) -> Maybe Text -> WidgetFor a ()
-registerTemplateDef toParent mErr = [whamlet|
-  $newline never
-  $maybe err <- mErr
-    <div class="alert">#{err}
-
-  <.register>
-    <h1>Register new account
-    <form method="post" action="@{toParent registerR}">
-      ^{honeypotFieldTemplate}
-      <fieldset>
-        <label for="email">Email
-        <input#email
-          type="email"
-          name="email"
-          placeholder="Enter your email address"
-          autofocus
-          required>
-      <button type="submit">Register
-      <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
-|]
+registerTemplateDef toParent mErr = $(whamletFile "templates/register.hamlet")

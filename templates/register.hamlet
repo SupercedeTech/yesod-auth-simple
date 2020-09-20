@@ -1,0 +1,19 @@
+$newline never
+$maybe err <- mErr
+  <div class="alert">#{err}
+
+<.register>
+  <h1>Register new account
+  <form method="post" action="@{toParent registerR}">
+    ^{honeypotFieldTemplate}
+    <fieldset>
+      <label for="email">Email
+      <input#email
+        type="email"
+        name="email"
+        placeholder="Enter your email address"
+        autofocus
+        required>
+    <button type="submit">Register
+    <p>Already have an account? <a href="@{toParent loginR}">Sign in</a>.
+

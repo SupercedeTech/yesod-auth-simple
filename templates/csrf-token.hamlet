@@ -1,0 +1,4 @@
+$newline never
+$maybe antiCsrfToken <- reqToken request
+  <input type=hidden name=#{defaultCsrfParamName} value=#{antiCsrfToken}>
+

@@ -1,0 +1,5 @@
+$newline never
+<fieldset class="#{honeypotName}">
+  <label for="#{honeypotName}">
+  <input type="text" name="#{honeypotName}" tabindex="none" autocomplete="off">
+

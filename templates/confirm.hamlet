@@ -1,0 +1,12 @@
+$newline never
+$maybe err <- mErr
+  <div class="alert">#{err}
+
+<.confirm>
+  <h1>Set Your Password
+  <form method="post" action="@{confirmUrl}">
+    ^{csrfTokenTemplate}
+    <p>#{email}
+    ^{pwField}
+    <button type="submit">Set Password
+

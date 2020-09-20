@@ -45,6 +45,7 @@ Library
     , yesod-core >= 1.6
     , yesod-form >= 1.6
     , persistent >= 2.8.2
+    , shakespeare
 
   Other-Modules:
     Yesod.Auth.Simple.Types
@@ -84,6 +85,7 @@ Common test-properties
     , yesod-form >=1.6     && <1.7
     , yesod-core >=1.6.15  && <1.7
     , zxcvbn-hs
+    , shakespeare
 
   Other-Modules:
     ExampleApp

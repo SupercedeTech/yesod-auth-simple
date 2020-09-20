@@ -1,0 +1,5 @@
+$newline never
+<.too-many-attempts>
+  <h1>Too many login attempts
+  <p>You have been locked out from your account until #{formatted} GMT
+
