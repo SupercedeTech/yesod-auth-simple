@@ -6,7 +6,12 @@ Maintainer:             Jezen Thomas <jezen@jezenthomas.com>
 License:                BSD-3-Clause
 License-File:           LICENSE
 Build-Type:             Simple
-Extra-Source-Files:     README.md, ChangeLog.md
+Extra-Source-Files:
+    README.md
+  , ChangeLog.md
+  , templates/*.hamlet
+  , templates/*.julius
+  , templates/*.lucius
 Category:               Web, Yesod
 Synopsis:               Traditional email/pass auth for Yesod.
 Description:
@@ -15,8 +20,6 @@ Description:
   with your web application.
   .
   This is originally adapted from prasmussen/glot-www
-Data-Files:
-  templates/*.hamlet
 
 Library
   Default-Language:     Haskell2010
