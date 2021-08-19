@@ -42,7 +42,7 @@ instance FromJSON PasswordReq where
     password <- o .: "password"
     return $ PasswordReq password
 
-newtype Email = Email Text
+newtype Email = Email { unEmail :: Text }
   deriving (Eq, Show, ToJSON, FromJSON)
 
 instance PersistFieldSql Email where
