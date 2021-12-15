@@ -74,6 +74,8 @@ All customised templates with password form inputs must include, in the form's P
 
 Full details on the class functions can be found in the Hackage docs. An example of writing an instance for testing purposes can be found [here](https://github.com/riskbook/yesod-auth-simple/blob/master/test/ExampleApp.hs).
 
+The library provides Email and Password types for which you need a few Persist instances. You can choose from default text-derived instance as in the example, `citext` email instance for storing email in postgres, or write your own.
+
 ## Security notes
 
 This library will send POST requests containing the user's password (including as they type it via an XHR when you choose to use the Zxcvbn strength algorithm). It is therefore **vital** that you do not log the request bodies of these routes to avoid storing passwords in plaintext logs on your server. Sensitive routes are currently: loginR, setPasswordR, confirmR, and passwordStrengthR. We are investigating ways to improve developer experience here.

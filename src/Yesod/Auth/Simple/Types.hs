@@ -5,15 +5,6 @@ module Yesod.Auth.Simple.Types where
 
 import ClassyPrelude
 import Data.Aeson
-import Database.Persist.Sql
-       ( PersistField
-       , PersistFieldSql
-       , PersistValue(PersistText)
-       , SqlType(SqlString)
-       , fromPersistValue
-       , sqlType
-       , toPersistValue
-       )
 import qualified Text.Password.Strength as PW
 
 newtype PasswordReq = PasswordReq { unPasswordReq :: Text }
@@ -48,26 +39,10 @@ newtype Email = Email { unEmail :: Text }
 instance Eq Email where
   Email e1 == Email e2 = toLower e1 == toLower e2
 
-instance PersistFieldSql Email where
-  sqlType = const SqlString
-
-instance PersistField Email where
-  toPersistValue (Email e) = toPersistValue e
-  fromPersistValue (PersistText e) = Right $ Email e
-  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
-
 newtype Password = Password Text
   deriving(Eq, ToJSON, FromJSON)
 
 instance Show Password where
   show _ = "<redacted>"
-
-instance PersistFieldSql Password where
-  sqlType = const SqlString
-
-instance PersistField Password where
-  toPersistValue (Password e) = toPersistValue e
-  fromPersistValue (PersistText e) = Right $ Password e
-  fromPersistValue e               = Left $ "Not a PersistText: " <> tshow e
 
 type VerUrl = Text

@@ -27,7 +27,11 @@ Library
   GHC-Options:          -Wall
   Default-Extensions:   NoImplicitPrelude
   Other-Extensions: TemplateHaskell
-  Exposed-Modules: Yesod.Auth.Simple
+  Exposed-Modules:
+    Yesod.Auth.Simple
+    Yesod.Auth.Simple.Instance.Persist.EmailText
+    Yesod.Auth.Simple.Instance.Persist.EmailTextCI
+    Yesod.Auth.Simple.Instance.Persist.PasswordText
   Build-Depends:
       base >= 4 && < 5
     , aeson
@@ -97,6 +101,9 @@ Common test-properties
     ExampleApp
     TestImport
     Yesod.Auth.Simple
+    Yesod.Auth.Simple.Instance.Persist.EmailText
+    Yesod.Auth.Simple.Instance.Persist.EmailTextCI
+    Yesod.Auth.Simple.Instance.Persist.PasswordText
     Yesod.Auth.Simple.Types
     Yesod.Auth.SimpleSpec
     Yesod.Auth.Simple.TypesSpec

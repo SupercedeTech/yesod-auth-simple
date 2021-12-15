@@ -22,6 +22,8 @@ import qualified Data.Vector as Vec
 import Database.Persist.Sql
 import Yesod.Auth
 import Yesod.Auth.Simple
+import Yesod.Auth.Simple.Instance.Persist.EmailText ()
+import Yesod.Auth.Simple.Instance.Persist.PasswordText ()
 import Yesod.Core.Types (Logger)
 
 data App = App
