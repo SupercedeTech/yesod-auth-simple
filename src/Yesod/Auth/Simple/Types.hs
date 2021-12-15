@@ -43,7 +43,10 @@ instance FromJSON PasswordReq where
     return $ PasswordReq password
 
 newtype Email = Email { unEmail :: Text }
-  deriving (Eq, Show, ToJSON, FromJSON)
+  deriving (Show, ToJSON, FromJSON)
+
+instance Eq Email where
+  Email e1 == Email e2 = toLower e1 == toLower e2
 
 instance PersistFieldSql Email where
   sqlType = const SqlString
