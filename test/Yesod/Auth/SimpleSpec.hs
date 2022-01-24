@@ -94,6 +94,7 @@ spec = withApp $ do
         request $ do
           setMethod "POST"
           setUrl $ AuthR confirmR
+          addToken_ "form"
           byLabelExact "Password" "really difficult yesod password here"
         followRedirect >>=
           assertNotEq "path is not confirmation form" (Right (ur (AuthR confirmR)))
