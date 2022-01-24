@@ -239,8 +239,11 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   userExistsTemplate :: WidgetFor a ()
   userExistsTemplate = userExistsTemplateDef
 
-  invalidTokenTemplate :: Text -> WidgetFor a ()
-  invalidTokenTemplate = invalidTokenTemplateDef
+  invalidPasswordTokenTemplate :: Text -> WidgetFor a ()
+  invalidPasswordTokenTemplate = invalidTokenTemplateDef
+
+  invalidRegistrationTokenTemplate :: Text -> WidgetFor a ()
+  invalidRegistrationTokenTemplate = invalidTokenTemplateDef
 
   tooManyLoginAttemptsTemplate :: UTCTime -> WidgetFor a ()
   tooManyLoginAttemptsTemplate = tooManyLoginAttemptsTemplateDef
@@ -374,9 +377,10 @@ postRegisterR = do
   case mEmail of
     _ | isJust honeypot -> do
           onBotPost
-          invalidTokenHandler "An unexpected error occurred.\
-                              \ Please try again or contact support\
-                              \ if the problem persists."
+          let msg = "An unexpected error occurred.\
+                    \ Please try again or contact support\
+                    \ if the problem persists."
+          redirectWithError registerR msg
     Just email' -> do
       tp <- getRouteToParent
       renderUrl <- getUrlRender
@@ -414,7 +418,7 @@ getConfirmR = do
   case mEmail of
     Nothing -> do
       markRegisterTokenAsUsed Nothing
-      invalidTokenHandler invalidRegistrationMessage
+      invalidRegistrationTokenHandler
     Just email ->
       -- If user already registered, redirect to homepage as
       -- authenticated user. Otherwise, keep the token in the cookie
@@ -428,11 +432,21 @@ getConfirmR = do
     doConfirm email = do tp <- getRouteToParent
                          confirmHandler (tp confirmR) email
 
-invalidTokenHandler :: YesodAuthSimple a => Text -> AuthHandler a TypedContent
-invalidTokenHandler msg = do
+invalidPasswordTokenHandler :: YesodAuthSimple a => AuthHandler a TypedContent
+invalidPasswordTokenHandler = do
   html <- authLayout $ do
-    setTitle "Invalid key"
-    invalidTokenTemplate msg
+    setTitle "Invalid token"
+    invalidPasswordTokenTemplate invalidPasswordTokenMessage
+  let contentType = [("Content-Type", "text/html")]
+  renderHtmlBuilder html
+    & responseBuilder badRequest400 contentType
+    & sendWaiResponse
+
+invalidRegistrationTokenHandler :: YesodAuthSimple a => AuthHandler a TypedContent
+invalidRegistrationTokenHandler = do
+  html <- authLayout $ do
+    setTitle "Invalid token"
+    invalidRegistrationTokenTemplate invalidRegistrationMessage
   let contentType = [("Content-Type", "text/html")]
   renderHtmlBuilder html
     & responseBuilder badRequest400 contentType
@@ -456,8 +470,8 @@ postConfirmR = do
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
   mEmail <- verifyRegisterTokenFromSession
   case mEmail of
-    _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
-    Nothing -> invalidTokenHandler invalidTokenMessage
+    _ | not okCsrf -> redirectWithError confirmR invalidCsrfMessage
+    Nothing -> invalidRegistrationTokenHandler
     Just email -> do
       password <- runInputPost $ ireq textField "password"
       createUser email (Pass . encodeUtf8 $ password)
@@ -691,8 +705,8 @@ invalidRegistrationMessage =
   "Invalid registration link. \
   \Please try registering again and contact support if the problem persists"
 
-invalidTokenMessage :: Text
-invalidTokenMessage =
+invalidPasswordTokenMessage :: Text
+invalidPasswordTokenMessage =
   "Invalid password reset token. \
   \Please try again and contact support if the problem persists."
 
@@ -710,7 +724,7 @@ getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getSetPasswordR = do
   mUid <- verifyPasswordTokenFromSession
   case mUid of
-    Nothing -> invalidTokenHandler invalidTokenMessage
+    Nothing -> invalidPasswordTokenHandler
     Just _ -> do
       tp <- getRouteToParent
       mErr <- getError
@@ -725,10 +739,10 @@ postSetPasswordR = do
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
   mUid <- verifyPasswordTokenFromSession
   case mUid of
-    _ | not okCsrf -> invalidTokenHandler invalidCsrfMessage
+    _ | not okCsrf -> redirectWithError setPasswordR invalidCsrfMessage
     Nothing -> do
       deleteSession passwordTokenSessionKey
-      invalidTokenHandler invalidTokenMessage
+      invalidPasswordTokenHandler
     Just uid -> do
       password <- runInputPost $ ireq textField "password"
       setPass uid (Pass . encodeUtf8 $ password)
