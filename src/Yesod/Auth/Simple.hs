@@ -18,6 +18,9 @@ __Note:__ this plugin reserves the following session names for its needs:
 
  * @yesod-auth-simple-error@
  * @yesod-auth-simple-email@
+ * @yas-set-password-token@
+ * @yas-registration-token@
+ * @yas-password-backup@
 -}
 
 module Yesod.Auth.Simple
@@ -141,20 +144,33 @@ passwordStrengthR :: AuthRoute
 passwordStrengthR = PluginR "simple" ["password-strength"]
 
 class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
+  -- | Alias for some UserId datatype, likely same as the one in YesodAuth
+  -- Refer to documentation for yesod-auth: http://hackage.haskell.org/package/yesod-auth
   type AuthSimpleId a
 
+  -- | route to redirect to after resetting password e.g. homepage
   afterPasswordRoute :: a -> Route a
 
+  -- | find user by email e.g. `runDB $ getBy $ UniqueUser email`
   getUserId :: Email -> AuthHandler a (Maybe (AuthSimpleId a))
 
+  -- | find user's password (encrypted), handling user not found case
   getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
 
+  -- | return this content after successful user registration
   onRegisterSuccess :: AuthHandler a TypedContent
 
+  -- | insert user to database with just email and password
+  -- other mandatory fields are not supported
   insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
 
+  -- | update record in database after validation
   updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
 
+  -- | Return time until which the user should not be allowed to log in.
+  -- The time is returned so that the UI can provide a helpful message in the
+  -- event that a legitimate user somehow triggers the rate-limiting mechanism.
+  -- If the time is Nothing, the user may log in.
   shouldPreventLoginAttempt ::
     Maybe (AuthSimpleId a) -> AuthHandler a (Maybe UTCTime)
   shouldPreventLoginAttempt _ = pure Nothing
@@ -196,6 +212,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   onRegistrationTokenUsed :: Email -> AuthHandler a ()
   onRegistrationTokenUsed _ = pure ()
 
+  -- | Password field widget for a chosen PasswordCheck algorithm
   passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
   passwordFieldTemplate tp =
     case passwordCheck @a of
@@ -203,8 +220,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
         passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
-  loginTemplate
-    :: (AuthRoute -> Route a)
+  loginTemplate :: (AuthRoute -> Route a)
     -> Maybe Text  -- ^ Error
     -> Maybe Text  -- ^ Email
     -> WidgetFor a ()
@@ -261,12 +277,15 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   onPasswordUpdated :: AuthSimpleId a -> AuthHandler a ()
   onPasswordUpdated _ = setMessage "Password has been updated"
 
+  -- | Action called when a bot is detected
   onBotPost :: AuthHandler a ()
   onBotPost = pure ()
 
+  -- | Provide suitable constructor e.g. `RuleBased 8`
   passwordCheck :: PasswordCheck
   passwordCheck = Zxcvbn PW.Safe Vec.empty
 
+-- | This instance of AuthPlugin for inserting into `authPlugins` of YesodAuth
 authSimple :: YesodAuthSimple m => AuthPlugin m
 authSimple = AuthPlugin "simple" dispatch loginHandlerRedirect
 
@@ -297,6 +316,7 @@ dispatch method path = case (method, path) of
   _                                       -> notFound
   where sr r = r >>= sendResponse
 
+-- | Registration page
 getRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 getRegisterR = do
   mErr <- getError
@@ -308,6 +328,7 @@ getRegisterR = do
       registerTemplate tp mErr
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
+-- | Reset password page
 getResetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getResetPasswordR = do
   mErr <- getError
@@ -316,6 +337,7 @@ getResetPasswordR = do
     setTitle "Reset password"
     resetPasswordTemplate tp mErr
 
+-- | Login page
 getLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 getLoginR = do
   mErr <- getError
@@ -328,8 +350,15 @@ getLoginR = do
       loginTemplate tp mErr mEmail
     Just _ -> redirect $ toPathPiece ("/" :: String)
 
+-- | Name for a password-reset token to store in cookies
+-- see getSetPasswordTokenR for motivation
+-- `yas` is short for Yesod Auth Simple :)
 passwordTokenSessionKey :: Text
-passwordTokenSessionKey = "yas_set_password_token"
+passwordTokenSessionKey = "yas-set-password-token"
+
+-- | Another key for registration tokens
+registrationTokenSessionKey :: Text
+registrationTokenSessionKey = "yas-registration-token"
 
 genToken :: IO ByteString
 genToken = getRandomBytes 24
@@ -339,34 +368,38 @@ hashAndEncodeToken :: ByteString -> Text
 hashAndEncodeToken bs = decodeUtf8 . B64.encode
                $ ByteArray.convert (C.hash bs :: Digest SHA256)
 
--- encode to base64url form
+-- | encode to base64url form
 encodeToken :: ByteString -> Text
 encodeToken = decodeUtf8With lenientDecode . B64Url.encode
 
--- Decode from base64url. Lenient decoding because this is random
+-- | Decode from base64url. Lenient decoding because this is random
 -- input from the user and not all valid utf8 is valid base64
 decodeToken :: Text -> ByteString
 decodeToken = B64Url.decodeLenient . encodeUtf8
 
+-- | Lookup and verify registration token
 verifyRegisterTokenFromSession :: YesodAuthSimple a
   => AuthHandler a (Maybe Email)
 verifyRegisterTokenFromSession =
   maybe (pure Nothing) matchRegistrationToken
-    =<< lookupSession passwordTokenSessionKey
+    =<< lookupSession registrationTokenSessionKey
 
+-- | Lookup and verify password token
 verifyPasswordTokenFromSession :: YesodAuthSimple a
                                => AuthHandler a (Maybe (AuthSimpleId a))
 verifyPasswordTokenFromSession =
   maybe (pure Nothing) matchPasswordToken
     =<< lookupSession passwordTokenSessionKey
 
+-- | Delete registration token from cookie and maybe callback
 markRegisterTokenAsUsed :: YesodAuthSimple a => Maybe Email -> AuthHandler a ()
 markRegisterTokenAsUsed mEmail = do
-  deleteSession passwordTokenSessionKey
+  deleteSession registrationTokenSessionKey
   case mEmail of
     Just email -> onRegistrationTokenUsed email
     _          -> pure ()
 
+-- | Accept registration form and send a verification link
 postRegisterR :: YesodAuthSimple a => AuthHandler a TypedContent
 postRegisterR = do
   clearError
@@ -394,6 +427,7 @@ postRegisterR = do
       tp <- getRouteToParent
       redirect $ tp registerR
 
+-- | Accept email and send a password reset link
 postResetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 postResetPasswordR = do
   clearError
@@ -406,12 +440,19 @@ postResetPasswordR = do
   sendResetPasswordEmail (Email email) url hashed
   redirect $ tp resetPasswordEmailSentR
 
+-- | Target URL reached from account confirmation email
+-- Move the token into a session cookie and redirect to the
+-- token-less URL (in order to avoid referrer leakage). The
+-- alternative is to invalidate the token immediately and embed a
+-- new one in the html form, but this has worse UX
 getConfirmTokenR :: Text -> AuthHandler a TypedContent
 getConfirmTokenR token = do
-  setSession passwordTokenSessionKey . hashAndEncodeToken . decodeToken $ token
+  setSession registrationTokenSessionKey . hashAndEncodeToken . decodeToken $ token
   tp <- getRouteToParent
   redirect $ tp confirmR
 
+-- | Validate registration token and present confirmation screen to continue
+-- e.g. include form to set password
 getConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmR = do
   mEmail <- verifyRegisterTokenFromSession
@@ -432,6 +473,7 @@ getConfirmR = do
     doConfirm email = do tp <- getRouteToParent
                          confirmHandler (tp confirmR) email
 
+-- | Response and perhaps explanation for invalid or expired password token
 invalidPasswordTokenHandler :: YesodAuthSimple a => AuthHandler a TypedContent
 invalidPasswordTokenHandler = do
   html <- authLayout $ do
@@ -442,6 +484,7 @@ invalidPasswordTokenHandler = do
     & responseBuilder badRequest400 contentType
     & sendWaiResponse
 
+-- | Response and perhaps explanation for invalid or expired registration token
 invalidRegistrationTokenHandler :: YesodAuthSimple a => AuthHandler a TypedContent
 invalidRegistrationTokenHandler = do
   html <- authLayout $ do
@@ -452,6 +495,7 @@ invalidRegistrationTokenHandler = do
     & responseBuilder badRequest400 contentType
     & sendWaiResponse
 
+-- | Next step after email verification, usually to set password
 confirmHandler ::
      YesodAuthSimple a
   => Route a
@@ -464,6 +508,7 @@ confirmHandler registerUrl email = do
     setTitle "Confirm account"
     confirmTemplate tp registerUrl email mErr
 
+-- | Check registration token again, take password and try to create user
 postConfirmR :: YesodAuthSimple a => AuthHandler a TypedContent
 postConfirmR = do
   clearError
@@ -476,6 +521,7 @@ postConfirmR = do
       password <- runInputPost $ ireq textField "password"
       createUser email (Pass . encodeUtf8 $ password)
 
+-- | Create user with valid password and return success page (or redirect)
 createUser :: forall m. YesodAuthSimple m
            => Email -> Pass -> AuthHandler m TypedContent
 createUser email password = do
@@ -498,26 +544,31 @@ createUser email password = do
           tp <- getRouteToParent
           redirect $ tp userExistsR
 
+-- | Confirmation to show after sending verification email
 getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmationEmailSentR = selectRep . provideRep . authLayout $ do
   setTitle "Confirmation email sent"
   confirmationEmailSentTemplate
 
+-- | Confirmation to show after sending password reset email
 getResetPasswordEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
 getResetPasswordEmailSentR = selectRep . provideRep . authLayout $ do
   setTitle "Reset password email sent"
   resetPasswordEmailSentTemplate
 
+-- | Another option for responding on successful registration
 getRegisterSuccessR :: AuthHandler a TypedContent
 getRegisterSuccessR = do
   setMessage "Account created. Welcome!"
   redirect ("/" :: Text)
 
+-- | Redirected to when `insertUser` does not return UserID
 getUserExistsR :: YesodAuthSimple a => AuthHandler a TypedContent
 getUserExistsR = selectRep . provideRep . authLayout $ do
   setTitle "User already exists"
   userExistsTemplate
 
+-- | JSON endpoint for validating password
 postPasswordStrengthR :: forall a. (YesodAuthSimple a) => AuthHandler a J.Value
 postPasswordStrengthR = do
   okCsrf <- hasValidCsrfParamNamed defaultCsrfParamName
@@ -528,6 +579,7 @@ postPasswordStrengthR = do
       let pass = Pass . encodeUtf8 $ password
       liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
 
+-- | Validate password for given parameters with Zxcvbn library
 checkPassWithZxcvbn ::
      PW.Strength
   -> Vector Text
@@ -541,6 +593,7 @@ checkPassWithZxcvbn minStrength' extraWords' day password =
   in if stren >= minStrength' then GoodPassword stren
      else BadPassword stren $ Just "The password is not strong enough"
 
+-- | Validate password with simple length rule
 checkPassWithRules :: Int -> Text -> PasswordStrength
 checkPassWithRules minLen password
   | T.length password >= minLen = GoodPassword PW.Safe
@@ -557,6 +610,7 @@ getPWStrength :: PasswordStrength -> PW.Strength
 getPWStrength (GoodPassword stren)  = stren
 getPWStrength (BadPassword stren _) = stren
 
+-- | Explain password strength with a given validator
 checkPasswordStrength :: PasswordCheck -> Pass -> IO PasswordStrength
 checkPasswordStrength check pass =
   case decodeUtf8' (getPass pass) of
@@ -637,6 +691,7 @@ setEmail = setSession emailSessionName
 clearEmail :: AuthHandler a ()
 clearEmail = deleteSession emailSessionName
 
+-- | Accept login form, check attempts limit and authenticate or redirect user
 postLoginR :: YesodAuthSimple a => AuthHandler a TypedContent
 postLoginR = do
   clearError
@@ -710,16 +765,18 @@ invalidPasswordTokenMessage =
   "Invalid password reset token. \
   \Please try again and contact support if the problem persists."
 
+-- | Target URL reached from password reset email
+-- Move the token into a session cookie and redirect to the
+-- token-less URL (in order to avoid referrer leakage). The
+-- alternative is to invalidate the token immediately and embed a
+-- new one in the html form, but this has worse UX
 getSetPasswordTokenR :: Text -> AuthHandler a TypedContent
 getSetPasswordTokenR token = do
-  -- Move the token into a session cookie and redirect to the
-  -- token-less URL (in order to avoid referrer leakage). The
-  -- alternative is to invalidate the token immediately and embed a
-  -- new one in the html form, but this has worse UX
   setSession passwordTokenSessionKey . hashAndEncodeToken . decodeToken $ token
   tp <- getRouteToParent
   redirect $ tp setPasswordR
 
+-- | Validate password token and prompt for new password
 getSetPasswordR :: YesodAuthSimple a => AuthHandler a TypedContent
 getSetPasswordR = do
   mUid <- verifyPasswordTokenFromSession
@@ -747,8 +804,8 @@ postSetPasswordR = do
       password <- runInputPost $ ireq textField "password"
       setPass uid (Pass . encodeUtf8 $ password)
 
-setPass
-  :: forall a. YesodAuthSimple a
+-- | Check and update password, callback, then redirect to user page
+setPass :: forall a. YesodAuthSimple a
   => AuthSimpleId a
   -> Pass
   -> AuthHandler a TypedContent
@@ -856,7 +913,7 @@ resetPasswordTemplateDef toParent mErr =
   $(whamletFile "templates/reset-password.hamlet")
 
 honeypotName :: Text
-honeypotName = "yas--password-backup"
+honeypotName = "yas-password-backup"
 
 honeypotFieldTemplate :: WidgetFor a ()
 honeypotFieldTemplate = do
