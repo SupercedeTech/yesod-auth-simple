@@ -92,8 +92,8 @@ Common test-properties
     , yesod
     , yesod-test
     , yesod-auth >= 1.6
-    , yesod-form >=1.6     && <1.7
-    , yesod-core >=1.6.15  && <1.7
+    , yesod-form >=1.6
+    , yesod-core >=1.6.15
     , zxcvbn-hs
     , shakespeare
 
