@@ -220,6 +220,10 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
         passwordFieldTemplateZxcvbn tp minStren extraWords'
       RuleBased _ -> passwordFieldTemplateBasic
 
+  -- | A template for showing the user authentication form
+  --
+  -- While a default is provided, you should probably override this with a
+  -- template that matches your own product's branding.
   loginTemplate :: (AuthRoute -> Route a)
     -> Maybe Text  -- ^ Error
     -> Maybe Text  -- ^ Email
