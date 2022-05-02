@@ -1,4 +1,22 @@
-# Revision history for yesod-auth-simple
+# Revision history for `yesod-auth-simple`
+
+This format is based on [Keep A Changelog](https://keepachangelog.com/en/1.0.0).
+
+## Unreleased
+
+## 0.1.0 - 2022-05-02
+
+### Added
+
+* `YesodAuthSimple` class methods:
+  - `isConfirmationPending` to check if an email is waiting for confirmation
+  - `confirmationEmailResentTemplate` to notify user that a confirmation email has been resent
+* Route `getConfirmationEmailResentR` to redirect user after the confirmation email has been resent
+
+### Changed
+
+* `postRegisterR` implementation logic. If you don't implement the new `YesodAuthSimple` methods,
+  it will work just like the old implementation
 
 ## 0.0.0  -- 2018-12-02
 
