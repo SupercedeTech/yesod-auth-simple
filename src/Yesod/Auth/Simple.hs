@@ -6,6 +6,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -58,6 +59,10 @@ module Yesod.Auth.Simple
   , encodeToken
   , hashAndEncodeToken
   , decodeToken
+    -- * Error handlers
+  , getError
+  , setError
+  , clearError
     -- * Misc
   , maxPasswordLength
     -- * Types
@@ -115,6 +120,9 @@ confirmR = PluginR "simple" ["confirm"]
 
 confirmationEmailSentR :: AuthRoute
 confirmationEmailSentR = PluginR "simple" ["confirmation-email-sent"]
+
+confirmationEmailResentR :: AuthRoute
+confirmationEmailResentR = PluginR "simple" ["confirmation-email-resent"]
 
 loginR :: AuthRoute
 loginR = PluginR "simple" ["login"]
@@ -201,6 +209,13 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   -- if the token is still valid and return the associated email if so.
   matchRegistrationToken :: Text -> AuthHandler a (Maybe Email)
 
+  {- | Сheck if a registration confirmation is pending for the given email.
+    
+    @since 1.0.0
+  -}
+  isConfirmationPending :: Email -> AuthHandler a Bool
+  isConfirmationPending _ = pure False
+
   -- | Like 'matchRegistrationToken' but for password resets.
   matchPasswordToken :: Text -> AuthHandler a (Maybe (AuthSimpleId a))
 
@@ -211,6 +226,15 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   -- case where a password reset token is used.
   onRegistrationTokenUsed :: Email -> AuthHandler a ()
   onRegistrationTokenUsed _ = pure ()
+  
+  {- | What to do if the email specified during registration is already registered.
+    
+    @since 1.0.0
+  -}
+  onEmailAlreadyExist :: AuthHandler a TypedContent
+  onEmailAlreadyExist = do
+    let msg = "This email address is already in use. Please login to your existing account."
+    redirectWithError registerR msg
 
   -- | Password field widget for a chosen PasswordCheck algorithm
   passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
@@ -249,6 +273,13 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   confirmationEmailSentTemplate :: WidgetFor a ()
   confirmationEmailSentTemplate = confirmationEmailSentTemplateDef
+
+  {- | Template to notify user that a confirmation email has been resent.
+
+    @since 1.0.0
+  -}
+  confirmationEmailResentTemplate :: WidgetFor a ()
+  confirmationEmailResentTemplate = confirmationEmailSentTemplate
 
   resetPasswordEmailSentTemplate :: WidgetFor a ()
   resetPasswordEmailSentTemplate = resetPasswordEmailSentTemplateDef
@@ -304,6 +335,8 @@ dispatch method path = case (method, path) of
   ("GET",  ["confirm"])                   -> sr getConfirmR
   ("POST", ["confirm"])                   -> sr postConfirmR
   ("GET",  ["confirmation-email-sent"])   -> sr getConfirmationEmailSentR
+  -- @since 1.0.0
+  ("GET",  ["confirmation-email-resent"]) -> sr getConfirmationEmailResentR
   ("GET",  ["register-success"])          -> sr getRegisterSuccessR
   ("GET",  ["user-exists"])               -> sr getUserExistsR
   ("GET",  ["login"])                     -> sr getLoginR
@@ -410,7 +443,7 @@ postRegisterR = do
   (honeypot, email) <- runInputPost $ (,)
                       <$> iopt textField honeypotName
                       <*> ireq textField "email"
-  mEmail <- validateAndNormalizeEmail email
+  mEmail <- fmap Email <$> validateAndNormalizeEmail email
   case mEmail of
     _ | isJust honeypot -> do
           onBotPost
@@ -419,13 +452,19 @@ postRegisterR = do
                     \ if the problem persists."
           redirectWithError registerR msg
     Just email' -> do
-      tp <- getRouteToParent
-      renderUrl <- getUrlRender
-      rawToken <- liftIO genToken
-      let url = renderUrl . tp . confirmTokenR $ encodeToken rawToken
-          hashed = hashAndEncodeToken rawToken
-      sendVerifyEmail (Email email') url hashed
-      redirect $ tp confirmationEmailSentR
+      getUserId email' >>= \case
+        -- User with that email already exists
+        Just _  -> onEmailAlreadyExist
+        Nothing -> do
+          tp <- getRouteToParent
+          renderUrl <- getUrlRender
+          rawToken <- liftIO genToken
+          let url = renderUrl . tp . confirmTokenR $ encodeToken rawToken
+              hashed = hashAndEncodeToken rawToken
+          route <- bool confirmationEmailSentR confirmationEmailResentR
+                    <$> isConfirmationPending email'
+          sendVerifyEmail email' url hashed
+          redirect $ tp route
     Nothing -> do
       setError "Invalid email address"
       tp <- getRouteToParent
@@ -553,6 +592,15 @@ getConfirmationEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmationEmailSentR = selectRep . provideRep . authLayout $ do
   setTitle "Confirmation email sent"
   confirmationEmailSentTemplate
+
+{- | Confirmation to show after resending verification email.
+
+  @since 1.0.0
+-}
+getConfirmationEmailResentR :: YesodAuthSimple a => AuthHandler a TypedContent
+getConfirmationEmailResentR = selectRep . provideRep . authLayout $ do
+  setTitle "Confirmation email resent"
+  confirmationEmailResentTemplate
 
 -- | Confirmation to show after sending password reset email
 getResetPasswordEmailSentR :: YesodAuthSimple a => AuthHandler a TypedContent
