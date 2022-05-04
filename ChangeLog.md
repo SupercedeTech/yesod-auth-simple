@@ -10,8 +10,10 @@ This format is based on [Keep A Changelog](https://keepachangelog.com/en/1.0.0).
 
 * `YesodAuthSimple` class methods:
   - `isConfirmationPending` to check if an email is waiting for confirmation
+  - `onEmailAlreadyExist` to specify an action if the email is already registered.
   - `confirmationEmailResentTemplate` to notify user that a confirmation email has been resent
 * Route `getConfirmationEmailResentR` to redirect user after the confirmation email has been resent
+* Functions `getError`, `setError`, `cleanError` added to export list
 
 ### Changed
 

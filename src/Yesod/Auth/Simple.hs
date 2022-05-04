@@ -59,6 +59,10 @@ module Yesod.Auth.Simple
   , encodeToken
   , hashAndEncodeToken
   , decodeToken
+    -- * Error handlers
+  , getError
+  , setError
+  , cleanError
     -- * Misc
   , maxPasswordLength
     -- * Types
@@ -222,6 +226,15 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   -- case where a password reset token is used.
   onRegistrationTokenUsed :: Email -> AuthHandler a ()
   onRegistrationTokenUsed _ = pure ()
+  
+  {- | What to do if the email specified during registration is already registered.
+    
+    @since 1.0.0
+  -}
+  onEmailAlreadyExist :: AuthHandler a TypedContent
+  onEmailAlreadyExist = do
+    let msg = "This email address is already in use. Please login to your existing account."
+    redirectWithError registerR msg
 
   -- | Password field widget for a chosen PasswordCheck algorithm
   passwordFieldTemplate :: (AuthRoute -> Route a) -> WidgetFor a ()
@@ -441,9 +454,7 @@ postRegisterR = do
     Just email' -> do
       getUserId email' >>= \case
         -- User with that email already exists
-        Just _  -> do
-          let msg = "This email address is already in use. Please login to your existing account."
-          redirectWithError registerR msg
+        Just _  -> onEmailAlreadyExist
         Nothing -> do
           tp <- getRouteToParent
           renderUrl <- getUrlRender
