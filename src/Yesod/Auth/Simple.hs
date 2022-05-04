@@ -62,7 +62,7 @@ module Yesod.Auth.Simple
     -- * Error handlers
   , getError
   , setError
-  , cleanError
+  , clearError
     -- * Misc
   , maxPasswordLength
     -- * Types
