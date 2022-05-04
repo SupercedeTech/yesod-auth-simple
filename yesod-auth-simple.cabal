@@ -1,6 +1,6 @@
 Cabal-Version:          2.2
 Name:                   yesod-auth-simple
-Version:                0.1.0
+Version:                1.0.0
 Author:                 Jezen Thomas <jezen@jezenthomas.com>
 Maintainer:             Jezen Thomas <jezen@jezenthomas.com>
 License:                BSD-3-Clause

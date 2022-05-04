@@ -207,7 +207,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   {- | Сheck if a registration confirmation is pending for the given email.
     
-    @since 0.1.0
+    @since 1.0.0
   -}
   isConfirmationPending :: Email -> AuthHandler a Bool
   isConfirmationPending _ = pure False
@@ -263,7 +263,7 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
 
   {- | Template to notify user that a confirmation email has been resent.
 
-    @since 0.1.0
+    @since 1.0.0
   -}
   confirmationEmailResentTemplate :: WidgetFor a ()
   confirmationEmailResentTemplate = confirmationEmailSentTemplate
@@ -322,6 +322,7 @@ dispatch method path = case (method, path) of
   ("GET",  ["confirm"])                   -> sr getConfirmR
   ("POST", ["confirm"])                   -> sr postConfirmR
   ("GET",  ["confirmation-email-sent"])   -> sr getConfirmationEmailSentR
+  -- @since 1.0.0
   ("GET",  ["confirmation-email-resent"]) -> sr getConfirmationEmailResentR
   ("GET",  ["register-success"])          -> sr getRegisterSuccessR
   ("GET",  ["user-exists"])               -> sr getUserExistsR
@@ -583,7 +584,7 @@ getConfirmationEmailSentR = selectRep . provideRep . authLayout $ do
 
 {- | Confirmation to show after resending verification email.
 
-  @since 0.1.0
+  @since 1.0.0
 -}
 getConfirmationEmailResentR :: YesodAuthSimple a => AuthHandler a TypedContent
 getConfirmationEmailResentR = selectRep . provideRep . authLayout $ do
