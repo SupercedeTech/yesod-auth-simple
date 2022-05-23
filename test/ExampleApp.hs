@@ -31,13 +31,7 @@ data App = App
   , appConnPool :: ConnectionPool
   }
 
-mkYesod "App" [parseRoutes|
-/auth AuthR Auth getAuth
-/ HomeR GET
-|]
-
-getHomeR :: Handler ()
-getHomeR = pure ()
+instance RenderRoute App => Yesod App
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 User
@@ -52,13 +46,11 @@ Token
   deriving Show
 |]
 
-instance Yesod App
 
-instance YesodPersist App where
-  type YesodPersistBackend App = SqlBackend
-
-  runDB :: SqlPersistT Handler a -> Handler a
-  runDB db = getsYesod appConnPool >>= runSqlPool db
+mkYesod "App" [parseRoutes|
+/auth AuthR Auth getAuth
+/ HomeR GET
+|]
 
 instance YesodAuth App where
   type AuthId App = Key User
@@ -67,6 +59,18 @@ instance YesodAuth App where
   authPlugins _ = [ authSimple ]
   getAuthId = return . fromPathPiece . credsIdent
   maybeAuthId = defaultMaybeAuthId
+
+getHomeR :: Handler ()
+getHomeR = pure ()
+
+
+
+instance YesodPersist App where
+  type YesodPersistBackend App = SqlBackend
+
+  runDB :: SqlPersistT Handler a -> Handler a
+  runDB db = getsYesod appConnPool >>= runSqlPool db
+
 
 getTestToken ::
   ( PersistStoreWrite (YesodPersistBackend (HandlerSite m))
