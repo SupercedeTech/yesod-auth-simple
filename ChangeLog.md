@@ -4,6 +4,11 @@ This format is based on [Keep A Changelog](https://keepachangelog.com/en/1.0.0).
 
 ## Unreleased
 
+## 1.1.0 - 2022-05-23
+
++ Make it build with ghc 9 by getting rid of AuthHandler in the typeclass
+  and use the more general MonadAuthHandler.
+
 ## 1.0.0 - 2022-05-04
 
 ### Added

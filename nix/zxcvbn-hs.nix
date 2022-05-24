@@ -1,37 +1,40 @@
-{ mkDerivation, attoparsec, base, base64-bytestring, binary
-, binary-instances, containers, criterion, fgl, hedgehog, lens
-, math-functions, stdenv, tasty, tasty-hedgehog, tasty-hunit, text
-, time, unordered-containers, vector, zlib
+{ mkDerivation, aeson, attoparsec, base, base64-bytestring, binary
+, binary-instances, containers, criterion, fetchgit, fgl, hedgehog
+, lens, lib, math-functions, tasty, tasty-hedgehog, tasty-hunit
+, text, time, unordered-containers, vector, zlib
 }:
 mkDerivation {
   pname = "zxcvbn-hs";
-  version = "0.2.1.0";
-  sha256 = "a811480d38390d58f30bf866053a848cf3aa37bd9bb7b90a4e9fda02c0cf6abf";
-  revision = "2";
-  editedCabalFile = "05l4pni4264rcivixzakjkph5qr4jr8qb4jbfj2nw106n1zhjaka";
+  version = "0.3.0.0";
+  src = fetchgit {
+    url = "https://github.com/SupercedeTech/zxcvbn-hs";
+    sha256 = "0czwk9bx57a18kgb3sy6mfw1hvzm66msv7y357lr33pkwim73fgn";
+    rev = "c9192ff4b05d4cbf5a6f6725510542782b962a91";
+    fetchSubmodules = true;
+  };
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    attoparsec base base64-bytestring binary binary-instances
+    aeson attoparsec base base64-bytestring binary binary-instances
     containers fgl lens math-functions text time unordered-containers
     vector zlib
   ];
   executableHaskellDepends = [
-    attoparsec base base64-bytestring binary binary-instances
+    aeson attoparsec base base64-bytestring binary binary-instances
     containers fgl lens math-functions text time unordered-containers
     vector zlib
   ];
   testHaskellDepends = [
-    attoparsec base base64-bytestring binary binary-instances
+    aeson attoparsec base base64-bytestring binary binary-instances
     containers fgl hedgehog lens math-functions tasty tasty-hedgehog
     tasty-hunit text time unordered-containers vector zlib
   ];
   benchmarkHaskellDepends = [
-    attoparsec base base64-bytestring binary binary-instances
+    aeson attoparsec base base64-bytestring binary binary-instances
     containers criterion fgl lens math-functions text time
     unordered-containers vector zlib
   ];
-  homepage = "https://code.devalot.com/sthenauth/zxcvbn-hs";
+  homepage = "https://github.com/sthenauth/zxcvbn-hs";
   description = "Password strength estimation based on zxcvbn";
-  license = stdenv.lib.licenses.mit;
+  license = lib.licenses.mit;
 }

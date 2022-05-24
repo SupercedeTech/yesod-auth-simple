@@ -160,78 +160,78 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   afterPasswordRoute :: a -> Route a
 
   -- | find user by email e.g. `runDB $ getBy $ UniqueUser email`
-  getUserId :: Email -> AuthHandler a (Maybe (AuthSimpleId a))
+  getUserId :: MonadAuthHandler a m => Email -> m (Maybe (AuthSimpleId a))
 
   -- | find user's password (encrypted), handling user not found case
-  getUserPassword :: AuthSimpleId a -> AuthHandler a EncryptedPass
+  getUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> m EncryptedPass
 
   -- | return this content after successful user registration
-  onRegisterSuccess :: AuthHandler a TypedContent
+  onRegisterSuccess :: MonadAuthHandler a m => m TypedContent
 
   -- | insert user to database with just email and password
   -- other mandatory fields are not supported
-  insertUser :: Email -> EncryptedPass -> AuthHandler a (Maybe (AuthSimpleId a))
+  insertUser :: MonadAuthHandler a m => Email -> EncryptedPass -> m (Maybe (AuthSimpleId a))
 
   -- | update record in database after validation
-  updateUserPassword :: AuthSimpleId a -> EncryptedPass -> AuthHandler a ()
+  updateUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> EncryptedPass -> m ()
 
   -- | Return time until which the user should not be allowed to log in.
   -- The time is returned so that the UI can provide a helpful message in the
   -- event that a legitimate user somehow triggers the rate-limiting mechanism.
   -- If the time is Nothing, the user may log in.
-  shouldPreventLoginAttempt ::
-    Maybe (AuthSimpleId a) -> AuthHandler a (Maybe UTCTime)
+  shouldPreventLoginAttempt :: MonadAuthHandler a m =>
+    Maybe (AuthSimpleId a) -> m (Maybe UTCTime)
   shouldPreventLoginAttempt _ = pure Nothing
 
   -- | Perform an action on a login attempt.
-  onLoginAttempt :: Maybe (AuthSimpleId a)
+  onLoginAttempt :: MonadAuthHandler a m => Maybe (AuthSimpleId a)
                  -- ^ The user id of the given email, if one exists
                  -> Bool
                  -- ^ Whether the password given was correct. Always
                  -- False when user id is Nothing
-                 -> AuthHandler a ()
+                 -> m ()
   onLoginAttempt _ _ = pure ()
 
   -- | Called when someone requests registration.
-  sendVerifyEmail :: Email -- ^ A valid email they've registered.
+  sendVerifyEmail :: MonadAuthHandler a m => Email -- ^ A valid email they've registered.
                   -> VerUrl -- ^ An verification URL (in absolute form).
                   -> Text   -- ^ A sha256 base64-encoded hash of the
                            -- verification token. You should store this in your
                            -- database.
-                  -> AuthHandler a ()
+                  -> m ()
   sendVerifyEmail _ url _ = liftIO . print $ url
 
   -- | Like 'sendVerifyEmail' but for password resets.
-  sendResetPasswordEmail :: Email -> VerUrl -> Text -> AuthHandler a ()
+  sendResetPasswordEmail :: MonadAuthHandler a m => Email -> VerUrl -> Text -> m ()
   sendResetPasswordEmail _ url _ = liftIO . print $ url
 
   -- | Given a hashed and base64-encoded token from the user, look up
   -- if the token is still valid and return the associated email if so.
-  matchRegistrationToken :: Text -> AuthHandler a (Maybe Email)
+  matchRegistrationToken :: MonadAuthHandler a m => Text -> m (Maybe Email)
 
   {- | Сheck if a registration confirmation is pending for the given email.
     
     @since 1.0.0
   -}
-  isConfirmationPending :: Email -> AuthHandler a Bool
+  isConfirmationPending :: MonadAuthHandler a m => Email -> m Bool
   isConfirmationPending _ = pure False
 
   -- | Like 'matchRegistrationToken' but for password resets.
-  matchPasswordToken :: Text -> AuthHandler a (Maybe (AuthSimpleId a))
+  matchPasswordToken :: MonadAuthHandler a m => Text -> m (Maybe (AuthSimpleId a))
 
   -- | Can be used to invalidate the registration token. This is
   -- different from 'onRegisterSuccess' because this will also be
   -- called for existing users who use the registration form as a
   -- one-time login link. Note that 'onPasswordUpdated' can handle the
   -- case where a password reset token is used.
-  onRegistrationTokenUsed :: Email -> AuthHandler a ()
+  onRegistrationTokenUsed :: MonadAuthHandler a m => Email -> m ()
   onRegistrationTokenUsed _ = pure ()
   
   {- | What to do if the email specified during registration is already registered.
     
     @since 1.0.0
   -}
-  onEmailAlreadyExist :: AuthHandler a TypedContent
+  onEmailAlreadyExist :: MonadAuthHandler a m => m TypedContent
   onEmailAlreadyExist = do
     let msg = "This email address is already in use. Please login to your existing account."
     redirectWithError registerR msg
@@ -309,11 +309,11 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   -- | Run after a user successfully changing the user's
   -- password. This is a good time to delete any password reset tokens
   -- for this user.
-  onPasswordUpdated :: AuthSimpleId a -> AuthHandler a ()
+  onPasswordUpdated :: MonadAuthHandler a m => AuthSimpleId a -> m ()
   onPasswordUpdated _ = setMessage "Password has been updated"
 
   -- | Action called when a bot is detected
-  onBotPost :: AuthHandler a ()
+  onBotPost :: MonadAuthHandler a m => m ()
   onBotPost = pure ()
 
   -- | Provide suitable constructor e.g. `RuleBased 8`
@@ -719,7 +719,7 @@ getError = do
   return mErr
 
 -- | Sets up the error session ('errorSessionName') to the given value.
-setError :: Text -> AuthHandler a ()
+setError :: MonadHandler m => Text -> m ()
 setError = setSession errorSessionName
 
 -- | Clears up the error session ('errorSessionName').
@@ -736,7 +736,7 @@ getEmail = do
   return mEmail
 
 -- | Sets up the email session ('emailSessionName') to the given value.
-setEmail :: Text -> AuthHandler a ()
+setEmail :: MonadHandler m => Text -> m ()
 setEmail = setSession emailSessionName
 
 -- | Clears up the email session ('emailSessionName').
