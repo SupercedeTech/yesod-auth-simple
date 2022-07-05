@@ -1,5 +1,8 @@
 let
-  rev = "a790b646e0634695782876f45d98f93c38ceae1d";
-  url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
+  # release-22.05, committed on 2022.07.04
 in
-  import (builtins.fetchTarball url)
+  import (builtins.fetchGit {
+          url = "https://github.com/NixOS/nixpkgs";
+          rev = "dbb62c34bbb5cdf05f1aeab07638b24b0824d605";
+          ref = "nixos-22.05";
+        })
