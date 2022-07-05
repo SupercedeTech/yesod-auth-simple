@@ -1,6 +1,6 @@
 { pkgs ? import ./nix/nixpkgs.nix { inherit config; }
 , config ? import ./nix/pkgconfig.nix { inherit compiler; }
-, compiler ? "ghc865"
+, compiler ? "ghc902"
 }:
 
 let
