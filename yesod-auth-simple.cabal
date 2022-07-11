@@ -44,7 +44,7 @@ Library
     , email-validate
     , http-types
     , memory
-    , scrypt
+    , password
     , text
     , time
     , wai
@@ -84,7 +84,7 @@ Common test-properties
     , monad-logger
     , persistent >= 2.8.2
     , persistent-sqlite
-    , scrypt
+    , password
     , text
     , time
     , vector

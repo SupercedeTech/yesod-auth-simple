@@ -3,6 +3,7 @@
 
 module Yesod.Auth.SimpleSpec (spec) where
 
+import qualified Data.Password.Scrypt as PSC
 import qualified Data.Text as T
 import TestImport
 
@@ -115,9 +116,9 @@ spec = withApp $ do
     describe "with an email that is not unique" $
 
       it "automatically authenticates the existing user" $ do
-        encrypted <- liftIO $ encryptPassIO' $ Pass "strongpass"
+        encrypted <- liftIO $ PSC.hashPassword $ PSC.mkPassword "strongpass"
         let userEmail = Email  "user@example.com"
-            userPassword = Password . decodeUtf8 . getEncryptedPass $ encrypted
+	    userPassword = Password $ PSC.unPasswordHash $ encrypted
         runDB' . insert_ $ User{..}
 
         token <- runHandler $ getTestToken userEmail -- encryptRegisterToken userEmail

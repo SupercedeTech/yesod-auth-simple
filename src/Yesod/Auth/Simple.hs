@@ -71,24 +71,20 @@ module Yesod.Auth.Simple
   , PW.Strength(..)
   , PasswordCheck(..)
   , PasswordStrength(..)
-    -- * Re-export from Scrypt
-  , EncryptedPass(..)
-  , Pass(..)
-  , encryptPassIO'
   ) where
 
 import ClassyPrelude
 import Crypto.Hash (Digest, SHA256)
 import qualified Crypto.Hash as C
 import Crypto.Random (getRandomBytes)
-import Crypto.Scrypt (EncryptedPass(..), Pass(..), encryptPassIO', verifyPass')
 import Data.Aeson
 import qualified Data.ByteArray as ByteArray
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64Url
 import Data.Function ((&))
+import qualified Data.Password.Scrypt as PSC
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8', decodeUtf8With)
+import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
 import qualified Data.Vector as Vec
 import Network.HTTP.Types (badRequest400, tooManyRequests429)
@@ -163,17 +159,17 @@ class (YesodAuth a, PathPiece (AuthSimpleId a)) => YesodAuthSimple a where
   getUserId :: MonadAuthHandler a m => Email -> m (Maybe (AuthSimpleId a))
 
   -- | find user's password (encrypted), handling user not found case
-  getUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> m EncryptedPass
+  getUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> m (PSC.PasswordHash PSC.Scrypt)
 
   -- | return this content after successful user registration
   onRegisterSuccess :: MonadAuthHandler a m => m TypedContent
 
   -- | insert user to database with just email and password
   -- other mandatory fields are not supported
-  insertUser :: MonadAuthHandler a m => Email -> EncryptedPass -> m (Maybe (AuthSimpleId a))
+  insertUser :: MonadAuthHandler a m => Email -> (PSC.PasswordHash PSC.Scrypt) -> m (Maybe (AuthSimpleId a))
 
   -- | update record in database after validation
-  updateUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> EncryptedPass -> m ()
+  updateUserPassword :: MonadAuthHandler a m => AuthSimpleId a -> (PSC.PasswordHash PSC.Scrypt) -> m ()
 
   -- | Return time until which the user should not be allowed to log in.
   -- The time is returned so that the UI can provide a helpful message in the
@@ -562,11 +558,11 @@ postConfirmR = do
     Nothing -> invalidRegistrationTokenHandler
     Just email -> do
       password <- runInputPost $ ireq textField "password"
-      createUser email (Pass . encodeUtf8 $ password)
+      createUser email (PSC.mkPassword password)
 
 -- | Create user with valid password and return success page (or redirect)
 createUser :: forall m. YesodAuthSimple m
-           => Email -> Pass -> AuthHandler m TypedContent
+           => Email -> PSC.Password -> AuthHandler m TypedContent
 createUser email password = do
   check <- liftIO $ strengthToEither
           <$> checkPasswordStrength (passwordCheck @m) password
@@ -577,7 +573,7 @@ createUser email password = do
       redirect $ tp confirmR
     Right _ -> do
       markRegisterTokenAsUsed $ Just email
-      encrypted <- liftIO $ encryptPassIO' password
+      encrypted <- liftIO $ PSC.hashPassword password
       insertUser email encrypted >>= \case
         Just uid -> do
           let creds = Creds "simple" (toPathPiece uid) []
@@ -628,7 +624,7 @@ postPasswordStrengthR = do
     then pure . toJSON $ BadPassword PW.Risky $ Just invalidCsrfMessage
     else do
       password <- runInputPost (ireq textField "password")
-      let pass = Pass . encodeUtf8 $ password
+      let pass = PSC.mkPassword $ password
       liftIO $ toJSON <$> checkPasswordStrength (passwordCheck @a) pass
 
 -- | Validate password for given parameters with Zxcvbn library
@@ -663,11 +659,8 @@ getPWStrength (GoodPassword stren)  = stren
 getPWStrength (BadPassword stren _) = stren
 
 -- | Explain password strength with a given validator
-checkPasswordStrength :: PasswordCheck -> Pass -> IO PasswordStrength
+checkPasswordStrength :: PasswordCheck -> PSC.Password -> IO PasswordStrength
 checkPasswordStrength check pass =
-  case decodeUtf8' (getPass pass) of
-    Left _ -> pure $ BadPassword PW.Weak $ Just "Invalid characters in password"
-    Right password ->
       if not satisfiesMaxLen
       then pure . BadPassword PW.Weak . Just
            $ "Password exceeds maximum length of "
@@ -688,7 +681,8 @@ checkPasswordStrength check pass =
             else BadPassword (min (getPWStrength pwstren) (pred minStren))
                  . Just $ "The password must be at least "
                  <> T.pack (show minPasswordLength) <> " characters"
-      where (boundedPw, extra) = T.splitAt maxPasswordLength password
+      where password = PSC.unsafeShowPassword pass
+            (boundedPw, extra) = T.splitAt maxPasswordLength password
             satisfiesMinLen = T.length boundedPw >= minPasswordLength
             satisfiesMaxLen = T.null extra
 
@@ -756,18 +750,18 @@ postLoginR = do
         <$> ireq textField "email"
         <*> ireq textField "password"
       setEmail email
-      let password = Pass . encodeUtf8 $ password'
+      let password = PSC.mkPassword $ password'
       mUid <- getUserId (Email email)
       mLockedOut <- shouldPreventLoginAttempt mUid
       case (mLockedOut, mUid) of
         (Just expires, _) -> tooManyLoginAttemptsHandler expires
         (_, Just uid) -> do
           storedPassword <- getUserPassword uid
-          if verifyPass' password storedPassword
-            then do
+          case PSC.checkPassword password storedPassword of
+            PSC.PasswordCheckSuccess -> do
               onLoginAttempt (Just uid) True
               setCredsRedirect $ Creds "simple" (toPathPiece uid) []
-            else do
+            PSC.PasswordCheckFail -> do
               onLoginAttempt (Just uid) False
               wrongEmailOrPasswordRedirect
         _ -> do
@@ -854,12 +848,12 @@ postSetPasswordR = do
       invalidPasswordTokenHandler
     Just uid -> do
       password <- runInputPost $ ireq textField "password"
-      setPass uid (Pass . encodeUtf8 $ password)
+      setPass uid (PSC.mkPassword $ password)
 
 -- | Check and update password, callback, then redirect to user page
 setPass :: forall a. YesodAuthSimple a
   => AuthSimpleId a
-  -> Pass
+  -> PSC.Password
   -> AuthHandler a TypedContent
 setPass uid password = do
   check <- liftIO $ strengthToEither
@@ -870,7 +864,7 @@ setPass uid password = do
       tp <- getRouteToParent
       redirect $ tp setPasswordR
     Right _ -> do
-      encrypted <- liftIO $ encryptPassIO' password
+      encrypted <- liftIO $ PSC.hashPassword password
       _         <- updateUserPassword uid encrypted
       onPasswordUpdated uid
       deleteSession passwordTokenSessionKey

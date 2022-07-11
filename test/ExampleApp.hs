@@ -18,6 +18,7 @@ module ExampleApp where
 
 import ClassyPrelude.Yesod
 import Data.Coerce (coerce)
+import qualified Data.Password.Scrypt as PSC
 import qualified Data.Vector as Vec
 import Database.Persist.Sql
 import Yesod.Auth
@@ -102,7 +103,7 @@ instance YesodAuthSimple App where
       _                   -> Nothing
 
   getUserPassword = do
-    let mkPass = EncryptedPass . encodeUtf8 . coerce . userPassword
+    let mkPass = PSC.PasswordHash . coerce . userPassword
     liftHandler . runDB . fmap mkPass . get404
 
   afterPasswordRoute = error "forced afterPasswordRoute"
