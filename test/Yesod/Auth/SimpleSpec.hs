@@ -3,6 +3,7 @@
 
 module Yesod.Auth.SimpleSpec (spec) where
 
+import qualified Data.Password.Scrypt as PSC
 import qualified Data.Text as T
 import TestImport
 
@@ -115,9 +116,9 @@ spec = withApp $ do
     describe "with an email that is not unique" $
 
       it "automatically authenticates the existing user" $ do
-        encrypted <- liftIO $ encryptPassIO' $ Pass "strongpass"
+        encrypted <- liftIO $ PSC.hashPassword $ PSC.mkPassword "strongpass"
         let userEmail = Email  "user@example.com"
-            userPassword = Password . decodeUtf8 . getEncryptedPass $ encrypted
+            userPassword = Password $ PSC.unPasswordHash $ encrypted
         runDB' . insert_ $ User{..}
 
         token <- runHandler $ getTestToken userEmail -- encryptRegisterToken userEmail
@@ -126,3 +127,13 @@ spec = withApp $ do
         statusIs 303
         ur <- runHandler getUrlRender
         followRedirect >>= assertEq "redirection successful" (Right $ ur HomeR)
+
+    describe "golden hashing test" $
+
+      it "should match regardless of scrypt implementation" $ do
+        -- This string is equivalent to "encryptPassIO' hello" from scrypt-0.5.0, which is what we
+	-- were using previously. 
+        let withScrypt = PSC.PasswordHash $ "14|8|1|+NCfU1Hyflh0D08VAGKtMCIRkTUzLGPZrVYxCwtgD3E=|SsDSxlYsCKbULcrOx5lsyz++Q8WkChj99aCGsB1pU0QUG4PVe0vLwUHOKL1dkL+1XmAPsWK4yR+RfcdZymwoNg=="
+            hello = PSC.mkPassword "hello"
+        encrypted <- liftIO $ PSC.hashPassword $ hello 
+        assertEq "hashes are equal" (PSC.checkPassword hello encrypted) (PSC.checkPassword hello withScrypt)
