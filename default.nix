@@ -1,4 +1,4 @@
-{ pkgs ? import ./nix/nixpkgs.nix { inherit config;  }
+{ pkgs ? import ./nix/nixpkgs.nix { inherit config; }
 , config ? import ./nix/pkgconfig.nix { inherit compiler; }
 , compiler ? "ghc902"
 }:
