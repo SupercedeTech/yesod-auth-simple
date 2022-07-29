@@ -71,6 +71,11 @@ module Yesod.Auth.Simple
   , PW.Strength(..)
   , PasswordCheck(..)
   , PasswordStrength(..)
+    -- * Re-exports
+  , PSC.PasswordHash(..)
+  , PSC.hashPassword
+  , PSC.mkPassword
+  , PSC.Scrypt
   ) where
 
 import ClassyPrelude
